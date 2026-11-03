@@ -22,13 +22,18 @@ The adapter targets `Snap888/Skyrim_Android`, branch `frame_gen`, source commit 
 
 ## CMake integration
 
-The `framegen/backends/dxvk/legacy/CMakeLists.txt` target now requires both the matching `dxvk_d3d9` target and `SnapFrame::Engine`. In the Skyrim Android native build:
+The downstream branch `Snap888/Skyrim_Android:snapframe-backend-v1` already wires the dependency in `android/app/jni/CMakeLists.txt`:
 
-- Add the Snap_AI_Engine `framegen` directory after configuring the DXVK target (or arrange target creation before enabling the optional legacy target).
-- Set `SNAP_FRAME_DXVK_SOURCE_DIR` to the checked-out DXVK source directory.
-- Enable `SNAP_FRAME_BUILD_DXVK_LEGACY` for the framegen subproject.
-- Ensure the host's `snapframe_host` references are linked to `snap_frame_dxvk_legacy` and `SnapFrame::Engine` exactly once.
-- Keep the existing shader compilation step and generated header path consistent with the host's NDK build.
+1. Build `SDL2`, `dxvk` and `lsfg` first so the exact `dxvk_d3d9` target exists.
+2. Fetch the pinned Snap_AI_Engine revision `aaf0c8472c2106244aeaae59f4a35d39a5352762`.
+3. Set `SNAP_FRAME_DXVK_SOURCE_DIR` to the local `android/app/jni/dxvk` source tree.
+4. Enable `SNAP_FRAME_BUILD_DXVK_LEGACY`; disable portable tests/examples for the app build.
+5. The optional target compiles `snapframe_host.cpp` and links `dxvk_d3d9` plus `SnapFrame::Engine`.
+6. The parent creates `snapframe_host` as an alias to `snap_frame_dxvk_legacy`, so the existing game target and runtime bootstrap retain their expected target/API names.
+7. The original `runtime/snapframe_bootstrap.c` remains compiled once by the game runtime; the imported adapter target deliberately does not compile a second copy.
+8. Shader generation writes `generated/snapframe_shaders.h`; the adapter searches the binary include path as well as the legacy source-relative path.
+
+For CI, `SNAPFRAME_VALIDATION_ONLY=ON` skips the game target (which needs generated `gen/` sources) while still configuring and compiling the exact DXVK + SnapFrame adapter target. Full APK builds remain a separate manual workflow and require the generated game sources.
 
 Do not compile the legacy adapter as a standalone library without the matching DXVK target. Do not copy private DXVK headers into the portable engine include tree.
 
