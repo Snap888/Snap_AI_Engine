@@ -15,8 +15,8 @@ import tempfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SHADER_DIR = ROOT / "android/app/jni/snapframe/shaders"
-DEFAULT_OUTPUT = ROOT / "android/app/jni/snapframe/generated/snapframe_shaders.h"
+SHADER_DIR = ROOT / "backends/dxvk/shaders"
+DEFAULT_OUTPUT = ROOT / "backends/dxvk/legacy/generated/snapframe_shaders.h"
 SHADERS = [
     ("luma_downsample", SHADER_DIR / "luma_downsample.comp"),
     ("block_match_flow", SHADER_DIR / "block_match_flow.comp"),
