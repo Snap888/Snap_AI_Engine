@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(SnapFrameEngine VERSION 0.1.0 LANGUAGES C CXX)
 
 option(SNAP_FRAME_BUILD_TESTS "Build SnapFrame portable core tests" ON)
+option(SNAP_FRAME_BUILD_EXAMPLE "Build SnapFrame mock backend example" ON)
 option(SNAP_FRAME_BUILD_DXVK_LEGACY "Build the imported DXVK-coupled host (requires DXVK source tree)" OFF)
 
 add_library(snap_frame_engine src/snap_frame.cpp)
@@ -24,6 +25,11 @@ if(SNAP_FRAME_BUILD_DXVK_LEGACY)
     message(FATAL_ERROR "SNAP_FRAME_BUILD_DXVK_LEGACY requires SNAP_FRAME_DXVK_SOURCE_DIR and existing target dxvk_d3d9. Add this project from a DXVK build.")
   endif()
   add_subdirectory(backends/dxvk/legacy)
+endif()
+
+if(SNAP_FRAME_BUILD_EXAMPLE)
+  add_executable(snap_frame_mock_example ../../examples/framegen_mock_backend.cpp)
+  target_link_libraries(snap_frame_mock_example PRIVATE SnapFrame::Engine)
 endif()
 
 if(SNAP_FRAME_BUILD_TESTS)
