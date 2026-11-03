@@ -1357,19 +1357,18 @@ void snapframeCopyFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
                         uint32_t width, uint32_t height, uint32_t formatValue) {
     if (!g_initialized.load(std::memory_order_acquire))
         return;
-    /* Keep the legacy reset/bypass path alive while disabled. It consumes pending
-     * resource resets at the render boundary and never dispatches GPU work. */
-    if (!g_enabled.load(std::memory_order_acquire)) {
-        snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
-            width, height, formatValue);
-        return;
-    }
     std::lock_guard<std::mutex> engineLock(g_backendMutex);
     if (!g_snapFrameEngine) {
         snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
             width, height, formatValue);
         return;
     }
+    /* While disabled, let the DXVK host consume pending history resets at this
+     * render boundary; the portable core then records a normal BYPASSED frame. */
+    if (!g_enabled.load(std::memory_order_acquire))
+        snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
+            width, height, formatValue);
+
     SnapFrameDxvkFrameArgs frame{contextPtr, sourceViewPtr, devicePtr,
         width, height, formatValue};
     SnapFrameFrameInput input{};
