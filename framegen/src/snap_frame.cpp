@@ -24,7 +24,8 @@ bool validConfig(const SnapFrameEngineConfig* c) {
     && c->quality >= SNAP_FRAME_QUALITY_PERFORMANCE
     && c->quality <= SNAP_FRAME_QUALITY_QUALITY
     && c->flow_scale_percent >= 25 && c->flow_scale_percent <= 100
-    && c->diagnostic_phase_frames >= 300 && c->diagnostic_phase_frames <= 36000;
+    && (!c->diagnostic_suite || (c->diagnostic_phase_frames >= 300
+      && c->diagnostic_phase_frames <= 36000));
 }
 bool validBackend(const SnapFrameBackendV1* b) {
   return b && b->struct_size >= sizeof(SnapFrameBackendV1)
