@@ -1,83 +1,112 @@
-# Snap AI Engine
+# Snap AI Engine + SnapFrame
 
-Lightweight adaptive policy engine for frame-generation pipelines. The first release, AI-Lite v0.1, is a deterministic telemetry-driven controller; it is **not** a trained neural network and does not generate/interpolate pixels.
+**SnapFrame** is the frame-generation engine in this repository. **Snap AI Engine** is an optional adaptive policy controller that can tune SnapFrame decisions. Both have independently usable portable APIs; neither portable core requires DXVK.
 
-## Purpose
-- Reduce unnecessary optical-flow work in simple, high-confidence scenes.
-- Spend more compute on uncertain or complex motion.
-- Apply GPU-pressure limits and temporal hysteresis.
-- Keep the controller optional, explainable and fail-safe.
-- Share one C ABI across Skyrim_Android, DXVK-based Winlator forks and WinNative's Android Vulkan compositor.
+Repository: https://github.com/Snap888/Snap_AI_Engine
+
+## Project status
+
+This branch contains:
+- Original SnapFrame host implementation and four GLSL compute shaders imported from `Snap888/Skyrim_Android`, branch `frame_gen`.
+- A portable C ABI and dependency-free orchestration core (`framegen/`).
+- Mock-backend tests for lifecycle, bypass, hot config, scene cuts, ordering and stats.
+- Original DXVK-bound implementation preserved under `framegen/backends/dxvk/legacy/`.
+- Original design, Vulkan architecture, readme and device test report preserved under `docs/legacy/`.
+
+**Important:** the portable core and mock backend can be built independently. The imported DXVK host still depends on DXVK internal C++ classes and is preserved as a legacy migration source. It has not yet been fully rewritten against `SnapFrameBackendV1`. Do not interpret portable mock tests as proof of GPU frame generation.
 
 ## Architecture
-The host renderer owns capture, Vulkan objects, synchronization, optical flow and reconstruction. Snap AI Engine receives scalar telemetry and returns bounded recommendations for the *next* flow dispatch. It never owns images, queues, command buffers, semaphores or swapchains.
 
-## Build
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSNAP_AI_BUILD_TESTS=ON
+```
+Game / compositor / runtime
+          | opaque frame handle + metadata
+          v
++--------------------------------------+
+| SnapFrame Engine (portable C ABI)    |
+| lifecycle, config, frame sequencing, |
+| bypass/fallback, stats               |
++-------------------+------------------+
+                    | SnapFrameBackendV1
+          +---------+-----------+
+          |                     |
+       DXVK                  WinNative
+   (first adapter)          (future)
+          |
+   Vulkan commands, resources,
+   barriers, synchronization,
+   present scheduling
+
+Optional Snap AI Engine consumes scalar telemetry and returns
+bounded policy decisions; it never owns GPU objects or sync.
+```
+
+The core treats native handles as opaque tokens. A backend owns graphics objects and synchronization. This allows DXVK, Winlator and WinNative to share the engine without sharing DXVK internals or a Vulkan device.
+
+## Preserved SnapFrame pipeline
+
+- Real-frame capture and history handling in the original DXVK host.
+- Half-resolution luma preprocessing.
+- Bidirectional block-matching motion fields.
+- Forward/backward consistency checks.
+- Midpoint warp reconstruction.
+- Dedicated log, GPU timing CSV, flow CSV, vector CSV and event CSV.
+- Seven-phase diagnostic suite.
+- Four compute shaders and shader compilation/validation script.
+
+Imported implementation files are preserved byte-for-byte under `framegen/backends/dxvk/legacy`; original reports are retained. This repository move does not claim new performance or device compatibility.
+
+## Build portable libraries
+
+Requirements: CMake 3.16+, C++17 compiler.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DSNAP_AI_BUILD_TESTS=ON -DSNAP_FRAME_BUILD_TESTS=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Android NDK:
-```bash
-cmake -S . -B build-android \
-  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
-  -DCMAKE_BUILD_TYPE=Release -DSNAP_AI_BUILD_TESTS=OFF
-cmake --build build-android --parallel
+Build only SnapFrame:
+```sh
+cmake -S framegen -B build-framegen -DSNAP_FRAME_BUILD_TESTS=ON
+cmake --build build-framegen --parallel
+ctest --test-dir build-framegen --output-on-failure
 ```
 
-Builds `libsnap_ai_engine.so` by default; set `-DBUILD_SHARED_LIBS=OFF` for a static archive.
+## Use SnapFrame
 
-## Quick API example
-```cpp
-#include <snap_ai/snap_ai.h>
-SnapAIConfig cfg{};
-snap_ai_default_config(&cfg);
-cfg.profile = SNAP_AI_PROFILE_BALANCED;
-SnapAIHandle* ai = snap_ai_create(&cfg);
+Link `SnapFrame::Engine` and include `snap_frame/snap_frame.h`. The host supplies a backend vtable. See [API](docs/FRAMEGEN_API.md), [backend contract](docs/FRAMEGEN_BACKEND.md) and [example](examples/framegen_mock_backend.cpp).
 
-SnapAIFrameMetrics m{};
-m.struct_size = sizeof(m);
-m.frame_id = 1;
-m.frame_time_ms = 41.6f;
-m.gpu_time_ms = 3.8f;
-m.motion_magnitude = 0.2f;
-m.motion_complexity = 0.3f;
-m.flow_confidence = 0.9f;
-m.gpu_pressure = 0.55f;
-m.artifact_risk = 0.05f;
-m.telemetry_valid = 1;
+The core supports hot configuration changes when the backend implements `update_config`. Without it, GPU-dependent changes fail explicitly rather than silently pretending to apply.
 
-SnapAIDecision d{};
-d.struct_size = sizeof(d);
-if (snap_ai_update(ai, &m, &d) == SNAP_AI_OK) {
-    // Map decision to validated host flow tiers; apply next frame only.
-}
-snap_ai_destroy(ai);
-```
+## Integrations
 
-## Profiles
-- **Performance** — prioritize reduced workload.
-- **Balanced** — default compromise.
-- **Quality** — preserve/add flow refinement when uncertainty is high.
+- [Skyrim_Android / DXVK](docs/INTEGRATION_SKYRIM_DXVK.md)
+- [Winlator](docs/INTEGRATION_WINLATOR.md)
+- [WinNative](docs/INTEGRATION_WINNATIVE.md)
 
-## Project status
-AI-Lite C++17 controller, C ABI, build system, sample host and unit tests are the v0.1 target. Integration adapters for Skyrim_Android, DXVK, Winlator and WinNative must be added and validated in their respective repositories. No Android device benchmark is claimed by this repository.
+## Optional DXVK legacy host
 
-## Documentation
-- [Architecture](docs/ARCHITECTURE.md)
-- [API](docs/API.md)
-- [Integration: Skyrim / DXVK / Winlator / WinNative](docs/INTEGRATION.md)
-- [Algorithms and future neural backend](docs/ALGORITHMS.md)
-- [Testing and benchmark protocol](docs/TESTING.md)
-- [Telemetry logging](docs/LOGGING.md)
-- [Roadmap](docs/ROADMAP.md)
-- [FAQ](docs/FAQ.md)
+The legacy host is an optional integration target requiring a parent DXVK build and its `dxvk_d3d9` target. The portable engine does not need DXVK. See `framegen/backends/dxvk/legacy/CMakeLists.txt` and the migration notes. Existing Skyrim-specific hook points are not automatically injected into arbitrary DXVK forks.
 
-## Safety guarantees
-Invalid telemetry, scene cuts, disabled state and non-monotonic frame IDs return a bypass decision. The host must clamp every recommendation to device-supported settings. AI output must never control Vulkan synchronization or resource ownership. If the library is unavailable or fails, use the existing baseline renderer unchanged.
+## Documents
 
-## License
-MIT. See [LICENSE](LICENSE).
+- [Architecture](docs/FRAMEGEN_ARCHITECTURE.md)
+- [API](docs/FRAMEGEN_API.md)
+- [Backend contract](docs/FRAMEGEN_BACKEND.md)
+- [Performance and telemetry](docs/FRAMEGEN_PERFORMANCE.md)
+- [Testing](docs/FRAMEGEN_TESTING.md)
+- [Migration record](docs/FRAMEGEN_MIGRATION.md)
+- [Legacy source documentation](docs/legacy/)
+
+## Provenance and licensing
+
+Imported from `Snap888/Skyrim_Android`, branch `frame_gen`, source commit `c385a66daef920f83a86e7eaf16ff822e507e3c7`. DXVK retains its own license; it is not relicensed or included in this repository. See [NOTICE](docs/NOTICE.md).
+
+## Current limitations
+
+- Portable SnapFrame core and mock-backend test are implemented.
+- Original GPU implementation remains DXVK-coupled in a clearly marked legacy folder.
+- End-to-end DXVK adapter against the new ABI is not yet complete or device-validated.
+- No Android APK or real-device test was run as part of this migration.
+- Winlator and WinNative adapters are documented targets, not completed adapters.
