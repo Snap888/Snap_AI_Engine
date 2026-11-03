@@ -6,7 +6,7 @@
 #include <mutex>
 
 struct SnapFrameEngine {
-  SnapFrameConfig config{};
+  SnapFrameEngineConfig config{};
   SnapFrameBackendV1 backend{};
   std::mutex config_mutex;
   std::atomic_flag processing = ATOMIC_FLAG_INIT;
@@ -17,8 +17,8 @@ struct SnapFrameEngine {
 };
 
 namespace {
-bool validConfig(const SnapFrameConfig* c) {
-  return c && c->struct_size >= sizeof(SnapFrameConfig)
+bool validConfig(const SnapFrameEngineConfig* c) {
+  return c && c->struct_size >= sizeof(SnapFrameEngineConfig)
     && c->api_version == SNAP_FRAME_API_VERSION
     && c->multiplier >= 1 && c->multiplier <= 2
     && c->quality >= SNAP_FRAME_QUALITY_PERFORMANCE
@@ -36,7 +36,7 @@ float totalGpu(const SnapFrameFrameOutput& o) {
 }
 }
 
-extern "C" void snap_frame_default_config(SnapFrameConfig* c) {
+extern "C" void snap_frame_default_config(SnapFrameEngineConfig* c) {
   if (!c) return;
   std::memset(c, 0, sizeof(*c));
   c->struct_size = sizeof(*c);
@@ -51,8 +51,8 @@ extern "C" void snap_frame_default_config(SnapFrameConfig* c) {
 }
 
 extern "C" SnapFrameEngine* snap_frame_create(
-    const SnapFrameConfig* config, const SnapFrameBackendV1* backend) {
-  SnapFrameConfig c{};
+    const SnapFrameEngineConfig* config, const SnapFrameBackendV1* backend) {
+  SnapFrameEngineConfig c{};
   if (config) c = *config; else snap_frame_default_config(&c);
   if (!validConfig(&c) || !validBackend(backend)) return nullptr;
   auto* e = new (std::nothrow) SnapFrameEngine();
@@ -78,7 +78,7 @@ extern "C" void snap_frame_destroy(SnapFrameEngine* e) {
 }
 
 extern "C" SnapFrameStatus snap_frame_set_config(
-    SnapFrameEngine* e, const SnapFrameConfig* c) {
+    SnapFrameEngine* e, const SnapFrameEngineConfig* c) {
   if (!e || !validConfig(c)) return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(e->config_mutex);
   if (e->backend.update_config) {
@@ -100,16 +100,16 @@ extern "C" SnapFrameStatus snap_frame_set_config(
 
 extern "C" SnapFrameStatus snap_frame_set_enabled(SnapFrameEngine* e, uint32_t enabled) {
   if (!e) return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
-  SnapFrameConfig c;
+  SnapFrameEngineConfig c;
   { std::lock_guard<std::mutex> lock(e->config_mutex); c = e->config; }
   c.enabled = enabled ? 1u : 0u;
   return snap_frame_set_config(e, &c);
 }
 
-extern "C" SnapFrameStatus snap_frame_set_quality(SnapFrameEngine* e, SnapFrameQuality q) {
+extern "C" SnapFrameStatus snap_frame_set_quality(SnapFrameEngine* e, SnapFrameEngineQuality q) {
   if (!e || q < SNAP_FRAME_QUALITY_PERFORMANCE || q > SNAP_FRAME_QUALITY_QUALITY)
     return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
-  SnapFrameConfig c;
+  SnapFrameEngineConfig c;
   { std::lock_guard<std::mutex> lock(e->config_mutex); c = e->config; }
   c.quality = q;
   return snap_frame_set_config(e, &c);
@@ -123,7 +123,7 @@ extern "C" SnapFrameStatus snap_frame_process(SnapFrameEngine* e,
   e->frames_seen.fetch_add(1, std::memory_order_relaxed);
   if (e->processing.test_and_set(std::memory_order_acquire))
     return SNAP_FRAME_ERROR_BUSY;
-  SnapFrameConfig c;
+  SnapFrameEngineConfig c;
   { std::lock_guard<std::mutex> lock(e->config_mutex); c = e->config; }
   std::memset(reinterpret_cast<char*>(out) + sizeof(uint32_t), 0,
       sizeof(*out) - sizeof(uint32_t));
@@ -167,7 +167,7 @@ extern "C" SnapFrameStatus snap_frame_process(SnapFrameEngine* e,
   return status;
 }
 
-extern "C" SnapFrameStatus snap_frame_get_stats(SnapFrameEngine* e, SnapFrameStats* s) {
+extern "C" SnapFrameStatus snap_frame_get_stats(SnapFrameEngine* e, SnapFrameEngineStats* s) {
   if (!e || !s || s->struct_size < sizeof(*s))
     return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
   s->frames_seen = e->frames_seen.load(std::memory_order_relaxed);
