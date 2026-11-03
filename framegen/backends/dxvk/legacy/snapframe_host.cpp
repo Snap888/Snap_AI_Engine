@@ -1357,6 +1357,8 @@ void snapframeCopyFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
                         uint32_t width, uint32_t height, uint32_t formatValue) {
     if (!g_initialized.load(std::memory_order_acquire))
         return;
+    /* Never let a failed/busy core call expose the previous frame's midpoint. */
+    g_midpointFrameReady.store(0, std::memory_order_release);
     std::lock_guard<std::mutex> engineLock(g_backendMutex);
     if (!g_snapFrameEngine) {
         snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
