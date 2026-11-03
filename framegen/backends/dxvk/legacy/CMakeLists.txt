@@ -9,8 +9,11 @@ if(NOT EXISTS "${SNAP_FRAME_DXVK_SOURCE_DIR}/src/dxvk/dxvk_context.h")
 endif()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-find_program(SNAPFRAME_GLSLANG glslangValidator REQUIRED)
-find_program(SNAPFRAME_SPIRV_VAL spirv-val REQUIRED)
+find_program(SNAPFRAME_GLSLANG glslangValidator)
+find_program(SNAPFRAME_SPIRV_VAL spirv-val)
+if(NOT SNAPFRAME_GLSLANG OR NOT SNAPFRAME_SPIRV_VAL)
+  message(FATAL_ERROR "DXVK SnapFrame build requires glslangValidator and spirv-val on the build host")
+endif()
 set(SNAPFRAME_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(SNAPFRAME_GENERATED_HEADER "${SNAPFRAME_GENERATED_DIR}/snapframe_shaders.h")
 add_custom_command(
