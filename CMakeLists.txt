@@ -39,3 +39,7 @@ install(TARGETS snap_ai_engine EXPORT SnapAITargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Backend-neutral SnapFrame frame-generation engine.
+option(SNAP_FRAME_BUILD_TESTS "Build SnapFrame portable core tests" ON)
+add_subdirectory(framegen)

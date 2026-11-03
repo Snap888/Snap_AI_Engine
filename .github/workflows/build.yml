@@ -8,9 +8,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Vulkan shader tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools spirv-tools
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSNAP_AI_BUILD_TESTS=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSNAP_AI_BUILD_TESTS=ON -DSNAP_FRAME_BUILD_TESTS=ON -DSNAP_FRAME_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Compile and validate SnapFrame shaders
+        run: python3 framegen/tools/compile_snapframe_shaders.py --output "$RUNNER_TEMP/snapframe_shaders.h"
+      - name: Configure standalone SnapFrame
+        run: cmake -S framegen -B build-framegen -DCMAKE_BUILD_TYPE=Release -DSNAP_FRAME_BUILD_TESTS=ON -DSNAP_FRAME_BUILD_EXAMPLE=ON
+      - name: Build standalone SnapFrame
+        run: cmake --build build-framegen --parallel
+      - name: Test standalone SnapFrame
+        run: ctest --test-dir build-framegen --output-on-failure

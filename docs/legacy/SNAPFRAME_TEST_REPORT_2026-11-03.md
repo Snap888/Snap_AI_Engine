@@ -1,0 +1,322 @@
+# SnapFrame device test — 2026-11-03 (flow scale 75%, updated logs)
+
+## Test configuration
+
+- Captured/presented extent: 2448x1080.
+- `flow_scale_percent=75`; motion grid 112x50 = 5,600 cells.
+- Motion analysis, GPU profiling and diagnostic suite enabled.
+- Active Vulkan ICD: Turnip Gen8 V38 (`libvulkan_freedreno.so`).
+- SnapFrame enabled; LSFG is disabled in the supplied `lsfg.conf`.
+- The latest uploaded diagnostic log ends during phase 2 (slow camera pan), at approximately 300/1,800 frames. Fast rotation and later phases are not present in this upload. This is an incomplete diagnostic run, not evidence of a crash.
+
+## User's A/B result
+
+The user reports that the latest version looks visibly better during sharp movements than previous SnapFrame tests.
+
+Reported average frame rates:
+- Original build without SnapFrame: 18–20 FPS.
+- SnapFrame build: 10–15 real game FPS + 10–15 generated FPS; displayed total generally 24–28 FPS.
+
+This is a real improvement in displayed smoothness, but the real game frame rate drops materially. The current priority is to reduce the generation cost while preserving the improved image quality. These FPS values are user-observed averages, not GPU timestamp measurements.
+
+## Runtime integrity
+
+The first diagnostic phase completes 1,800 frames:
+- luma dispatches: 1,800;
+- flow pairs: 1,799;
+- consistency dispatches: 1,799;
+- midpoint warps: 1,799;
+- skipped frames and dispatch failures: 0.
+
+The log then enters `slow_camera_pan` and records progress at 300/1,800 frames before ending. The uploaded `snapframe.log` does not contain the fast-rotation, NPC/combat, foliage, HUD or long-run phase results.
+
+Note: several flow samples with large global displacement and substantial boundary saturation occur while the diagnostic label still says `static_scene`. The phase label and the measured motion are therefore not fully aligned in this run. Use the flow metrics themselves to classify motion; do not treat every sample in phase 1 as a true static-scene sample.
+
+## Motion-estimation observations
+
+There are 17 aggregate flow snapshots, each on a 112x50 grid. Representative values:
+
+| Frame | Mean magnitude (luma texels) | Mean confidence | Forward boundary cells | FB consistency > 0.5 |
+|---:|---:|---:|---:|---:|
+| 361 | 0.39 | 0.105 | 15 | 8.82% |
+| 481 | 2.07 | 0.124 | 77 | 8.80% |
+| 721 | 7.20 | 0.067 | 874 | 0.39% |
+| 841 | 7.36 | 0.059 | 923 | 0.13% |
+| 961 | 7.19 | 0.071 | 663 | 0.43% |
+| 1201 | 6.88 | 0.084 | 599 | 1.55% |
+| 1441 | 7.43 | 0.057 | 950 | 0.13% |
+| 1681 | 5.62 | 0.124 | 452 | 6.20% |
+| 1801 | 0.37 | 0.800 | 11 | 90.43% |
+| 1921 | 0.00 | 0.998 | 0 | 99.80% |
+| 2041 | 0.02 | 0.994 | 0 | 99.36% |
+
+During high-displacement samples, hundreds of cells reach the search boundary and confidence/forward-backward consistency collapse. At frames 841 and 1441, fewer than 1% of cells pass the consistency threshold. This is an ambiguous/clipped flow field. The static/near-static samples at 1801–2041 show the opposite: confidence around 0.8–0.998 and consistency around 90–99.8%.
+
+The user's visual improvement is consistent with the recent midpoint fallback correction: low-confidence areas now use the current real frame instead of averaging two displaced unwarped frames. This avoids a broad double-image blur, but uncertain regions may temporarily lose interpolated motion.
+
+## GPU cost
+
+The uploaded `snapframe_gpu.csv` contains 71 valid samples per stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.534 | 0.730 | 0.559 |
+| luma | 0.400 | 0.540 | 0.431 |
+| flow forward | 6.897 | 7.617 | 6.805 |
+| flow backward | 6.898 | 7.823 | 6.765 |
+| consistency | 0.012 | 0.014 | 0.012 |
+| midpoint warp | 1.554 | 2.108 | 1.674 |
+| total chain | 16.339 | 18.221 | 16.252 |
+
+The two flow passes account for about 13.57 ms on average, roughly 84% of the measured total chain. This is the primary optimization target. The GPU chain timestamp is not the same as whole-game frame time and must not be interpreted as a standalone FPS measurement.
+
+## Source optimization committed after this log
+
+The block matcher previously evaluated up to 89 candidate positions per cell in each direction, with a 3x3 SAD patch.
+
+The next search now uses:
+- a 5x5 coarse lattice at offsets -8, -4, 0, 4, 8;
+- a 5x5 integer refinement around the winning coarse point (excluding the already-tested center);
+- at most 49 candidate positions instead of 89, a theoretical reduction of approximately 45% in candidate/SAD evaluations;
+- the local search still covers integer offsets across the coarse winner's +/-2 neighborhood, and boundary detection now follows the expanded +/-10 edge.
+
+This is a performance experiment, not a measured speedup yet. A coarser first pass can choose a less suitable basin on repetitive/low-texture content; the next device run must compare confidence, boundary saturation, FB consistency and visual detail as well as GPU time. If quality regresses, restore the previous lattice or use a pyramid-based search.
+
+## Next validation
+
+1. Build and install the commit containing the 49-candidate matcher.
+2. Repeat the same 75% test with explicit phase discipline: keep the camera still for all of phase 1, pan only in phase 2, rotate quickly only in phase 3.
+3. Capture the complete 7-phase suite.
+4. Compare per-stage GPU medians/P90, especially both flow passes and total chain.
+5. Compare the same slow pan and fast rotation visually; inspect edge sharpness, disocclusions, foliage and HUD.
+6. Add deterministic identical-frame and known-translation tests before making further changes to search range or reconstruction.
+
+
+
+## Follow-up log upload — 2026-11-03 (branch head 6cee7dd)
+
+The next uploaded diagnostic set is still a partial run. The log completes phase 1 (static_scene, 1,800 frames) and enters phase 2 (slow_camera_pan), reaching 1,500/1,800 frames before the file ends. No phase-2 result, fast rotation, NPC/combat, foliage, HUD or long-run result is present. Dispatch counters remain healthy through the captured portion; the phase-1 result reports 1,800 luma dispatches and 1,799 each for flow, consistency and midpoint, with zero skipped frames or dispatch failures.
+
+### New GPU timings
+
+The new snapframe_gpu.csv contains 116 valid samples per stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.502 | 0.612 | 0.514 |
+| luma | 0.400 | 0.540 | 0.429 |
+| flow forward | 5.025 | 5.521 | 4.780 |
+| flow backward | 5.068 | 5.472 | 4.744 |
+| consistency | 0.012 | 0.015 | 0.012 |
+| midpoint warp | 1.554 | 2.109 | 1.681 |
+| total chain | 12.961 | 13.833 | 12.167 |
+
+The two flow passes still dominate: their combined median is about 10.09 ms. The total-chain median is about 20.7% below the previous run's 16.339 ms median, but this is not yet a controlled A/B comparison and must not be attributed to the 49-candidate shader change: the runtime log identifies the matcher as coarse9x9-step2+refine3x3, while the current source shader is the newer 49-candidate coarse5x5-step4+refine5x5. This mismatch means the APK used for this capture may predate the matcher change, or the runtime diagnostic string was stale. The latter has now been corrected in source; a fresh APK/device run is required to identify the active binary unambiguously.
+
+### Motion and test-phase observations
+
+The aggregate flow snapshots show two different regimes. Frames 841–1681 (still labelled static_scene) have mean displacement roughly 6.5–9.0 half-resolution-luma texels, low confidence (about 0.06–0.14), and substantial boundary saturation. During the nominal slow_camera_pan phase, frames 1801–2881 also show large displacement and low confidence; frames 3001 onward return to near-zero motion and very high confidence. Thus phase labels do not describe the actual motion consistently in this run. The last snapshots likely represent the camera having stopped, but the log alone cannot establish why.
+
+The matcher is still frequently reaching its search limit during the high-motion snapshots. This confirms that a single-level +/-10 search window cannot robustly cover the measured displacement and camera motion. The next algorithmic direction remains a true multi-level luma pyramid, not a wider brute-force search. However, do not implement pyramid allocation/dispatch until the current capture is complete and a clean same-binary baseline is available.
+
+### Instrumentation correction committed
+
+Source diagnostics previously reported the old 9x9/step-2 plus 3x3 refinement search and counted boundary vectors at +/-8.5 even though the current shader uses a 5x5/step-4 coarse lattice plus 5x5 refinement and marks the +/-10 boundary. The host now reports coarse5x5-step4+refine5x5, range +/-10 and maximum 49 candidates; flow readback boundary accounting now uses the matching >=9.5 threshold for integer vectors. This fixes observability only; it does not change shader output or claim a performance gain.
+
+### Required next validation
+
+1. Build/install from a commit containing the corrected runtime matcher description.
+2. Confirm the startup log explicitly reports coarse5x5-step4+refine5x5 ... candidates_max=49.
+3. Keep the camera truly still throughout phase 1; pan only in phase 2; rotate quickly only in phase 3.
+4. Upload the complete 7-phase run and compare flow vectors, boundary saturation, confidence, consistency and per-stage timings.
+5. Only after the active matcher is confirmed should its performance be compared with the previous 89-candidate build.
+
+
+## Follow-up device log upload — 2026-11-03 (49-candidate matcher confirmed)
+
+The latest branch upload is commit `4ef51ed0f3034036b8c5e64b5fba1fb2c1762d78`. The startup log explicitly reports `coarse5x5-step4+refine5x5 range=+/-10 patch=3x3 candidates_max=49`, confirming that this run used the intended matcher and the corrected host diagnostics.
+
+### Run completeness and runtime health
+
+The log completes phases 1–3 (static_scene, slow_camera_pan, fast_camera_rotation), each with 1,800 frames and zero skipped frames or dispatch failures. It enters phase 4 (moving_npc_combat) and reaches 1,500/1,800 frames (captured-frame count 7,080) before the uploaded log ends. There is no phase-4 result and no phase 5–7 result; this is an incomplete upload/run, not evidence of a crash. SnapFrame initialization reports R16F luma support, 112x50 flow/consistency resources and 2448x1080 RGBA16F midpoint output.
+
+The supplied configuration is 75% flow scale, motion analysis and profiling enabled, diagnostic suite enabled, 1,800 frames per phase. LSFG is disabled (`enabled=0`), so these results isolate SnapFrame rather than simultaneous LSFG processing. The DXVK LSFG GPU CSV explicitly says profiling_disabled.
+
+### Motion quality observations
+
+The flow CSV contains 59 aggregate snapshots on a 112x50 grid (5,600 cells). The active matcher is confirmed, but the movement pattern still does not cleanly match the phase labels:
+- During phase 1, samples range from near-static to mean motion magnitudes above 8 half-resolution luma texels (e.g. frames 1561 and 1681).
+- Phase 2 repeatedly reports magnitudes around 7–8 texels with low mean confidence (~0.07–0.12) and hundreds to more than 1,300 boundary-saturated cells.
+- Phase 3 also contains repeated high-motion/clipped samples, with mean magnitudes near 7–8 and confidence commonly below 0.13.
+- Phase 4 has mixed motion; its captured snapshots include both moderate and high displacement. The phase is not complete.
+
+These data confirm that the single-level +/-10 search still saturates under large movement. At some samples, roughly 15–30% of the 5,600 cells hit the boundary; forward/backward consistency can fall below 1%. The 49-candidate shader is active, but it does not solve large displacement. Do not increase the single-level radius: proceed toward a coarse-to-fine luma pyramid after establishing a phase-disciplined baseline. During the next run, keep the camera still for all of phase 1, pan only in phase 2, and rotate only in phase 3.
+
+### Updated GPU timings
+
+The new `snapframe_gpu.csv` contains 238 valid samples for each stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.504 | 0.592 | 0.502 |
+| luma | 0.399 | 0.410 | 0.417 |
+| flow forward | 5.019 | 5.604 | 4.894 |
+| flow backward | 5.017 | 5.502 | 4.855 |
+| consistency | 0.012 | 0.013 | 0.012 |
+| midpoint warp | 1.554 | 1.587 | 1.626 |
+| total chain | 12.706 | 13.935 | 12.312 |
+
+The two flow passes have a combined median of about 10.04 ms, approximately 79% of the 12.71 ms median total chain. They remain the dominant optimization target. These measurements are from the active 49-candidate build, but there is no controlled 89-candidate A/B run under the same scene, thermal state and test procedure; do not attribute a measured percentage improvement to the candidate-count change.
+
+### Source optimization committed after this upload
+
+The block matcher now aborts a candidate's 3x3 SAD patch when its partial SAD becomes strictly greater than the current second-best complete SAD. Since SAD is a sum of non-negative terms, that candidate cannot then become either the best or second-best match. The strict comparison preserves equal-cost tie handling and therefore preserves the best-vector ranking and confidence margin. This is an exact-work reduction, not an algorithmic approximation; actual GPU savings depend on scene texture and candidate ordering and must be measured on device.
+
+### Next validation
+
+1. Build/install a commit containing the SAD early-out and confirm the same 49-candidate startup string.
+2. Repeat all seven phases and allow the log to finish; keep phase movement instructions exact.
+3. Compare the same scene and thermal conditions before/after the SAD early-out, including median/P90 flow timings and image quality.
+4. Inspect foliage, thin geometry, NPC silhouettes and fast turns; retain the current midpoint fallback.
+5. Continue multi-level pyramid design separately; do not combine it with the SAD optimization in the same performance comparison.
+
+
+## Follow-up device log upload — 2026-11-03 (SAD early-out run)
+
+The newest log upload is branch commit `2fbbc80e038e0589fb6b750b8b64dfd90c433572`. Runtime startup confirms the 49-candidate coarse5x5-step4 + refine5x5 matcher at 75% flow scale, with 2448x1080 capture, 112x50 flow grid and R16F luma. SnapFrame is enabled; LSFG is disabled, so this run isolates SnapFrame. All reported dispatches have zero skips/failures.
+
+### Test completion and phase discipline
+
+Phases 1–5 each reached 1,800 frames and emitted successful phase results. Phase 6 (hud_inventory_map) began at captured frame 9,001 and the uploaded log ends at frame 9,840 (about 840/1,800 phase frames); no phase-6 result or phase-7 long-run result is present. This is an incomplete uploaded run, not evidence of a crash. The aggregate flow CSV contains 82 snapshots. The large flow-vector CSV is present in the repository listing, but the connector could not return its 7.5 MB content, so this report does not claim a full per-cell vector analysis.
+
+Phase labels still do not consistently match observed motion. For example, static_scene samples at frames 1,201–1,681 include mean flow magnitudes around 7.4–8.5 and substantial boundary saturation, while slow_camera_pan samples around 2,281–2,401 are essentially static with confidence around 0.98. This suggests the camera movement instructions were not followed consistently or the test scene changed independently; the logs cannot distinguish those causes. The next comparison should use a repeatable scene and exact phase actions.
+
+### GPU timings
+
+The new GPU CSV contains 329 valid samples per stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.503 | 0.617 | 0.511 |
+| luma | 0.400 | 0.460 | 0.429 |
+| flow forward | 3.496 | 4.130 | 3.405 |
+| flow backward | 3.484 | 4.147 | 3.386 |
+| consistency | 0.012 | 0.014 | 0.012 |
+| midpoint warp | 1.554 | 1.790 | 1.668 |
+| total chain | 9.487 | 10.981 | 9.417 |
+
+Compared with the previous confirmed 49-candidate run (238 samples/stage; total-chain median 12.706 ms; flow medians 5.019/5.017 ms), the new run is lower by about 25.3% in total-chain median and about 30.3% in each flow-pass median. This is encouraging and consistent with the exact SAD early-out being effective, but it is not a controlled A/B: scene motion, thermal state, workload and test duration are not matched. Do not present these percentages as a guaranteed shader speedup.
+
+### Motion-estimation quality
+
+The 82 aggregate flow snapshots continue to show the single-level +/-10 search boundary problem. During high-motion samples, boundary-saturated cells reach 2,034/5,600 (36.3%) at frame 8,521; forward mean confidence is only 0.0407 and FB consistency above 0.5 is 0.018%. Other high-motion samples around frames 7,321–8,881 show roughly 18–23% boundary saturation and very low consistency. In near-static samples (e.g. frames 2,281, 6,601–6,841), confidence/consistency approach 0.99. Thus the matcher behaves well on genuinely static frames, but clips under large displacement. Keep the current boundary suppression and sharp real-frame fallback; do not widen the single-level radius.
+
+### Follow-up exact SAD evaluation-order optimization
+
+After reviewing this run, the 3x3 SAD patch evaluation order was changed to test the center pixel first, then axial neighbors, then corners. The existing strict partial-SAD > second-best early-out remains unchanged. Because SAD terms are non-negative and all nine samples are still accumulated whenever a candidate can affect the best/second-best ranking, this is an evaluation-order optimization only; it does not change candidate ranking or confidence semantics. The expected benefit is earlier rejection of poor candidates when the center pixel already differs strongly. This is a hypothesis, not a measured speedup; validate with shader CI and a same-scene device run. Commit: `0a118fd93428a1bdf534f3f8763d59a1489be85d`.
+
+### Next test
+
+1. Build/install the center-first SAD shader and confirm startup reports the 49-candidate matcher.
+2. Repeat the same scene and thermal conditions, with phase 1 truly static, phase 2 slow pan, phase 3 fast rotation, and phases 4–7 as prompted.
+3. Complete all 12,600 diagnostic frames; upload snapframe.log, snapframe_gpu.csv, snapframe_flow.csv and (if possible) a compressed/segmented flow-vector dump.
+4. Compare forward/backward flow medians/P90, total-chain timings, boundary saturation, confidence and FB consistency. Inspect foliage, silhouettes, HUD and fast turns visually.
+5. Proceed with multi-level luma-pyramid integration only as a separate change with per-level resources, explicit barriers, vector scaling and deterministic known-translation tests. Do not mix it into the center-first SAD performance comparison.
+
+
+## Follow-up device log upload — 2026-11-04 (extended run, center-first matcher)
+
+The latest uploaded `Logs/snapframe.log`, `snapframe_gpu.csv` and `snapframe_flow.csv` were read from branch `frame_gen`. Runtime startup confirms 2448x1080 capture, 75% flow scale, 1224x540 R16F luma, a 112x50 flow grid, and the 49-candidate `coarse5x5-step4+refine5x5` matcher with +/-10 search boundary. The supplied configuration has motion analysis, profiling and the seven-phase diagnostic suite enabled. LSFG is not mentioned in this upload's startup excerpt; do not assume its state from these three files alone.
+
+### Run completeness and runtime health
+
+Phases 1–5 complete 1,800 frames each, with 1,800 luma dispatches and 1,800 flow/consistency/midpoint operations per phase and zero reported skips or dispatch failures. Phase 6 (`hud_inventory_map`) reached 1,500/1,800 progress and the uploaded log ends at captured frame 10,560 (approximately 1,560/1,800 phase frames). There is no phase-6 result, no phase 7, and no `TEST_SUITE_COMPLETE`. Treat this as a partial upload/run, not evidence of a crash.
+
+### GPU timings
+
+The GPU CSV contains 355 valid samples per stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.523 | 0.640 | 0.552 |
+| luma | 0.400 | 0.540 | 0.428 |
+| flow forward | 4.284 | 4.857 | 4.262 |
+| flow backward | 4.297 | 4.799 | 4.250 |
+| consistency | 0.012 | 0.014 | 0.012 |
+| midpoint warp | 1.554 | 2.108 | 1.645 |
+| total chain | 11.106 | 12.606 | 11.156 |
+
+The two flow passes account for approximately 8.58 ms combined median and remain the dominant cost. Compared with the previous uploaded run (329 samples/stage; total-chain median 9.487 ms; flow medians 3.496/3.484 ms), this run is slower. This is not a controlled A/B: scene content, device thermal/DVFS state and runtime conditions are not established as identical. The first 12 samples (frames 30–360) are consistently slower (flow medians about 6.20/6.15 ms; total 16.48 ms) than the remaining 343 samples (flow medians 4.262/4.270 ms; total 11.075 ms), indicating a significant time-varying GPU/runtime state. Do not attribute the difference to the shader evaluation-order change without a matched repeat.
+
+### Motion-estimation quality
+
+There are 88 valid aggregate flow snapshots on the 112x50 grid. Large displacement and clipping persist. The largest forward boundary count is 2,418/5,600 cells (43.2%) at frame 5,881; at that snapshot mean confidence is 0.0432 and only 0.143% of cells pass the >0.5 forward/backward consistency threshold. Another severe sample at frame 9,121 has 2,250 boundary cells (40.2%), mean confidence 0.0447 and 0.589% consistency. In contrast, near-static samples such as frames 3,601 and 4,321 have confidence near 1 and consistency around 90–100%. This reinforces that the single-level +/-10 matcher clips on large motion but behaves well on static content. Keep boundary suppression and current-real-frame fallback; do not widen the single-level search.
+
+The diagnostic phase labels still do not map cleanly to observed motion: large displacements occur in several phases and near-static snapshots appear inside phases intended to contain movement. The metrics classify the actual captured pair, not the user's action. The next run should use an identifiable repeatable scene and the prompted action sequence; avoid interpreting phase names as ground truth.
+
+### Next engineering step
+
+The source currently allocates only one half-resolution R16F luma image per history slot; `luma_downsample.comp` creates the first 2x reduction, not a multi-level pyramid. The host dispatches one forward and one backward block match against that single level. A true coarse-to-fine implementation therefore requires explicit per-slot pyramid images/views, per-level downsample dispatches and write-to-sample barriers, coarse flow initialization, correctly scaled vector propagation between levels, and separate validation of forward/backward consistency and midpoint flow units. Do not bolt extra mip levels onto the current image or widen the radius without matching view/layout/synchronization support. Keep the current matcher/fallback as a runtime fallback until deterministic identical-frame and known-translation tests pass on every level.
+
+No new shader algorithm change is claimed from this upload. The center-first SAD shader remains a candidate-work optimization whose device benefit is not isolated by this non-matched run. The next implementation should be a separately validated coarse-to-fine prototype, followed by a same-scene device test and full seven-phase log.
+
+
+
+## Follow-up device log upload — 2026-11-04 (DXVK perf-off capture, 75% flow)
+
+The latest branch upload is commit `fa63892031d9e80a852dc96dc9948ab45268448a`. The new set includes SnapFrame GPU/flow logs, DXVK performance diagnostics, LSFG configuration/logs and runtime tuning configuration.
+
+### Runtime configuration and LSFG isolation
+
+- Capture extent: 2448x1080; flow scale: 75%; flow grid: 112x50 (5,600 cells).
+- SnapFrame is enabled with multiplier=2, quality=1, motion analysis and GPU profiling enabled.
+- Active ICD: Turnip Gen8 V38.
+- LSFG is explicitly disabled: `lsfg.conf enabled=0`; `lsfg.log` confirms it was disabled at host initialization.
+- `dxvk_lsfg_gpu.csv` reports `profiling_disabled`; `lsfg_gpu_profile.conf` also has `enabled=0`. No LSFG GPU timings can be inferred from this run.
+- `dxvk_perf_off.csv` identifies the capture as `run=lsfg_off`, which agrees with the LSFG config.
+
+### Diagnostic completion and runtime health
+
+Phases 1–5 (static_scene, slow_camera_pan, fast_camera_rotation, moving_npc_combat and foliage_particles_water) each completed 1,800 frames. Each phase reports 1,800 successful luma dispatches and 1,800 flow, consistency and midpoint operations, with zero skipped frames and zero dispatch failures.
+
+Phase 6 (hud_inventory_map) began at captured frame 9,001. The last log line reaches flow/consistency count 10,680, approximately 1,680/1,800 phase frames. There is no phase-6 result, phase 7 or `TEST_SUITE_COMPLETE`. This is a partial diagnostic run/upload, not evidence of a crash.
+
+The uploaded `snapframe_events.csv` is listed by GitHub at 5,990,898 bytes, but the repository file fetch returned an empty content payload. It could not be parsed; do not treat it as an empty event stream.
+
+### SnapFrame GPU timings
+
+The new `snapframe_gpu.csv` contains 359 valid samples per stage at 2448x1080:
+
+| Stage | Median ms | P90 ms | Average ms |
+|---|---:|---:|---:|
+| capture copy | 0.582 | 0.703 | 0.583 |
+| luma | 0.401 | 0.459 | 0.427 |
+| flow forward | 4.321 | 5.274 | 4.367 |
+| flow backward | 4.345 | 5.407 | 4.371 |
+| consistency | 0.012 | 0.014 | 0.012 |
+| midpoint warp | 1.554 | 1.788 | 1.631 |
+| total chain | 11.261 | 13.343 | 11.398 |
+
+Forward and backward flow together cost about 8.67 ms at the median, approximately 77% of the 11.26 ms median chain. Flow remains the primary GPU optimization target. The total chain is a GPU timestamp interval, not a whole-game frame-time or FPS measurement.
+
+Relative to the prior upload (355 samples; total median 11.106 ms; flow medians 4.284/4.297 ms), this capture is slightly slower: total +1.4%, forward +0.9%, backward +1.1%. The difference is small and runs are not thermally or scene matched, so it is not evidence of a regression from center-first SAD ordering.
+
+### Motion estimation
+
+There are 89 aggregate flow snapshots on the 112x50 grid, covering frames 121–10,681. Forward mean magnitude has median 6.72 luma texels (P90 8.38); mean confidence median is 0.131. Boundary saturation has median 478 cells, P90 1,279 and maximum 2,862/5,600 (51.1%) at frame 7,201. At that sample mean confidence is 0.0367 and only 0.375% of cells exceed 0.5 forward/backward consistency. Frame 10,681 has 2,102 boundary cells (37.5%), confidence 0.0358 and 0% consistency above 0.5.
+
+Near-static samples still demonstrate the opposite regime: for example frame 5,761 has zero mean motion, confidence 0.994 and 99.375% consistency; frame 10,321 has confidence 0.996 and 99.643% consistency. The matcher is therefore not generally broken; it fails to represent large displacement within the single-level +/-10 search window. Keep boundary suppression and the current-real-frame fallback. Do not widen the single-level radius.
+
+### DXVK performance diagnostic caveat
+
+`dxvk_perf_off.csv` contains 89 samples at 120-frame intervals. The reported `avg_cpu_present_ms` has median 37.77 ms and P90 43.64 ms, with large variation; its minimum/maximum columns also contain occasional extreme outliers (maximum column reaches 406.34 ms). This is a CPU-side Present diagnostic, not GPU time and not directly interchangeable with SnapFrame GPU timestamps.
+
+Although the file is explicitly labelled `lsfg_off`, its `avg_generated_requested` and `avg_generated_queued` columns remain approximately 1 for every sample. That is inconsistent with interpreting those fields as proof that LSFG actually generated frames in this run. Treat the fields as request/queue counters whose semantics need source verification; LSFG config and host log are the authoritative state indicators here.
+
+### Engineering decision
+
+The latest run does not justify changing the search radius or claiming a speedup from the center-first SAD change. The strongest repeated finding is still large-motion boundary clipping, while static matching remains high-confidence. The next algorithmic improvement remains a genuine multi-level luma pyramid, implemented with independent per-history-slot level images/views, explicit downsample dispatches and barriers, coarse-to-fine flow propagation with unit conversion, and validated forward/backward consistency and midpoint units.
+
+Before changing the algorithm, establish a repeatable phase discipline and retain the current single-level path as fallback. A separate 50% flow-scale device run may quantify the quality/performance tradeoff (approximately fewer flow cells, but potentially less detail); it must be an opt-in experiment, not a default change. The current 75% run should remain the reference configuration.
+
+No shader or runtime algorithm change is claimed from this log upload. No APK build or device install was performed in this update.
