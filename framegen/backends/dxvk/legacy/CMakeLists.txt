@@ -33,7 +33,9 @@ add_custom_target(snapframe_dxvk_shaders DEPENDS "${SNAPFRAME_GENERATED_HEADER}"
 
 add_library(snap_frame_dxvk_legacy STATIC snapframe_host.cpp snapframe_bootstrap.c)
 add_dependencies(snap_frame_dxvk_legacy snapframe_dxvk_shaders)
-target_include_directories(snap_frame_dxvk_legacy PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
+target_include_directories(snap_frame_dxvk_legacy PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+  "${CMAKE_CURRENT_LIST_DIR}/../../../include")
 target_include_directories(snap_frame_dxvk_legacy PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(snap_frame_dxvk_legacy PRIVATE
   "${SNAPFRAME_GENERATED_DIR}"
@@ -52,7 +54,10 @@ target_include_directories(snap_frame_dxvk_legacy PRIVATE
 target_compile_definitions(snap_frame_dxvk_legacy PRIVATE NOMINMAX DXVK_NATIVE _FILE_OFFSET_BITS=64)
 target_compile_options(snap_frame_dxvk_legacy PRIVATE
   "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cstdint>" -Wno-everything)
-target_link_libraries(snap_frame_dxvk_legacy PUBLIC dxvk_d3d9)
+if(NOT TARGET SnapFrame::Engine)
+  message(FATAL_ERROR "Add the SnapFrame framegen target before enabling the DXVK adapter")
+endif()
+target_link_libraries(snap_frame_dxvk_legacy PUBLIC dxvk_d3d9 SnapFrame::Engine)
 if(ANDROID)
   target_link_libraries(snap_frame_dxvk_legacy PUBLIC log vulkan)
 endif()

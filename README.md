@@ -4,16 +4,16 @@
 
 ## Branch `SnapFrameBackendV1`
 
-This branch advances the portable backend contract, preserves the Skyrim DXVK GPU pipeline and shaders, adds integration documentation and host workflow templates, and prepares cross-platform CI.
+This branch adds a concrete `SnapFrameBackendV1` bridge for the Skyrim Android DXVK fork, while keeping the portable core backend-neutral. The adapter routes DXVK's real-frame callback through the portable engine and delegates GPU work to the imported Vulkan compute pipeline. It preserves the existing midpoint/WSI present hooks and real-frame fallback.
 
-**Status is intentionally explicit:** the legacy DXVK host is not yet a concrete `SnapFrameBackendV1` adapter. It uses private DXVK types and Skyrim-fork-specific hooks. The portable core/mock tests are not proof of end-to-end GPU generation. See [DXVK adapter status](docs/DXVK_ADAPTER_STATUS.md) and [integration matrix](docs/INTEGRATION_MATRIX.md).
+**Scope is important:** this adapter targets the custom DXVK-native 1.9.2b fork in `Snap888/Skyrim_Android` branch `frame_gen`. It is not a drop-in binary for arbitrary upstream DXVK or all Winlator forks. Winlator and WinNative still need their own fork/compositor wiring and runtime validation. See [DXVK adapter status](docs/DXVK_ADAPTER_STATUS.md) and [integration matrix](docs/INTEGRATION_MATRIX.md).
 
 ## Architecture
 
 ```text
 Game / compositor -> SnapFrame portable C ABI -> SnapFrameBackendV1
-                                             |-> DXVK/Vulkan (first target)
-                                             |-> WinNative compositor (future)
+                                             |-> DXVK Vulkan adapter (Skyrim fork)
+                                             |-> WinNative compositor adapter (future)
 Optional Snap AI consumes scalar telemetry and returns bounded policy settings.
 ```
 
@@ -51,4 +51,4 @@ Original SnapFrame host sources and four GLSL compute shaders were imported from
 
 ## Validation limits
 
-No Android APK build, Winlator runtime test, WinNative runtime test or physical GPU validation is claimed by this branch. Those require the exact downstream host revisions and device/driver matrix.
+The portable engine and mock-backend tests are covered by CI. The DXVK adapter is wired to the imported Skyrim fork's hooks but has not yet been built in that downstream Android project or tested on a physical GPU. No Winlator or WinNative runtime validation is claimed.

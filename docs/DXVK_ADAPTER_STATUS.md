@@ -1,48 +1,31 @@
 # DXVK adapter implementation status
 
-## Scope
+## Implemented on this branch
 
-The target is a concrete implementation of `SnapFrameBackendV1` for the exact DXVK fork/revision used by a host. DXVK is one adapter, not the engine itself. The portable engine must remain independent of Vulkan and DXVK private headers.
+A concrete `SnapFrameBackendV1` bridge is now wired into the imported Skyrim DXVK host in `framegen/backends/dxvk/legacy/snapframe_host.cpp`:
 
-## Current state on this branch
+- DXVK's real-frame copy hook enters `snapframeCopyFrame`.
+- The wrapper builds a `SnapFrameFrameInput` with an opaque pointer to the DXVK frame arguments and calls `snap_frame_process`.
+- The v1 backend callback invokes the original GPU capture/luma/forward+backward flow/consistency/midpoint-warp implementation.
+- The backend maps hot configuration updates and history reset requests into the legacy host state.
+- The existing DXVK generation and present-result hooks remain responsible for handing the midpoint image to WSI and confirming queued presentation.
+- A mutex protects engine lifetime against callback/shutdown races; the portable core serializes config changes with frame processing.
 
-- `SnapFrameBackendV1` ABI and portable core exist in `framegen/include/snap_frame/snap_frame.h`.
-- The original Skyrim DXVK GPU pipeline and four compute shaders are retained under `framegen/backends/dxvk/legacy`.
-- The legacy host includes DXVK internals and Skyrim-fork-specific hook points.
-- The legacy host is **not** a concrete implementation of the new backend vtable yet.
-- No Android/Windows game runtime or physical GPU test has been performed on this branch.
+The legacy source remains under `legacy/` because it uses DXVK internal C++ classes. It is not a portable source file and must be compiled against the exact host fork.
 
-## Required concrete adapter
+## Target compatibility
 
-| Callback | Required behavior |
-|---|---|
-| initialize | Validate Vulkan device/queue/format capabilities; allocate images, buffers, descriptors, pipelines and timestamp queries |
-| update_config | Apply safe runtime changes; defer resource recreation to a serialized render boundary |
-| reset_history | Invalidate previous-frame, luma and motion-vector history on enable, scene cut, resize and device recreation |
-| process_frame | Record preprocess, forward/backward flow, consistency and midpoint-warp compute passes; submit without CPU wait/readback |
-| shutdown | Release all adapter-owned objects before DXVK device/allocator teardown |
+The source baseline is `Snap888/Skyrim_Android` branch `frame_gen`, commit `c385a66daef920f83a86e7eaf16ff822e507e3c7`. That fork identifies itself as dxvk-native `1.9.2b` with mobile-GPU patches. Relevant hook points are documented in [Skyrim DXVK integration](INTEGRATION_SKYRIM_DXVK.md).
 
-The host owns queue submission, fences/semaphores, WSI and present pacing. The adapter must not create a second competing present scheduler. The generated-frame count is reported only after the host confirms that the generated image was accepted for presentation.
+This is not yet a generic adapter for every upstream DXVK or Winlator fork. The adapter currently reuses the original single-host/global GPU resource state; per-device multi-instance isolation remains a future hardening task.
 
-## Resource and synchronization rules
+## Required validation before calling it production-ready
 
-1. Never assume `native_frame` is a Vulkan image unless the host ABI explicitly says so. Define a versioned DXVK host context with typed image/view/format/layout/queue metadata.
-2. Do not retain transient DXVK image wrappers beyond their documented lifetime. Copy/resolve into adapter-owned history resources when needed.
-3. Declare every image layout transition and queue-family ownership transfer.
-4. Do not wait for GPU completion in the per-frame callback.
-5. Avoid CPU pixel readback in normal operation. GPU timestamp queries may be collected asynchronously.
-6. On any unsupported format, device loss, allocation failure or invalid history, return bypass and preserve the real-frame present.
-7. Ensure resize and device teardown cannot race with process_frame or hot configuration.
+- Build the optional target inside the exact Skyrim Android CMake graph with `dxvk_d3d9` already defined and `SnapFrame::Engine` added.
+- Build Android arm64-v8a APK and confirm adapter symbols are linked into the expected native library.
+- Run on Adreno and Mali where supported; verify capture, all four compute stages, midpoint output and present-result callbacks.
+- Test rapid enable/disable, resize, scene cuts, device recreation, shutdown while frames are in flight and LSFG mutual exclusion.
+- Confirm real-frame fallback on every failure and verify audio remains unaffected.
+- Compare GPU timestamps and generated/queued-present counts against the pre-adapter legacy build.
 
-## Integration strategy
-
-The original legacy source is the behavioral reference for the motion pipeline and diagnostics. Port its algorithms and shader bindings into the per-device adapter in stages; do not simply rename the old global host. Compile against the exact DXVK fork used by Skyrim first, then validate other forks with separate CI jobs.
-
-## Acceptance criteria
-
-- The concrete adapter registers a `SnapFrameBackendV1` vtable.
-- No unresolved Skyrim-only symbol is required by the portable library.
-- DXVK build succeeds for Android arm64-v8a and Windows x86_64 on the selected fork.
-- Tests cover callback lifecycle, resize, scene cut, disable/enable, device-loss bypass and concurrent teardown.
-- GPU validation confirms barriers/layouts and generated-image lifetime.
-- Device tests compare baseline vs enabled frame pacing, GPU time, generated-frame count, artifact rate and audio stability.
+The branch has not yet completed these downstream builds or physical-device tests. Portable CI does not validate DXVK private API compatibility.

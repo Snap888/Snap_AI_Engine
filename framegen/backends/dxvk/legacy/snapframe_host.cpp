@@ -1,4 +1,5 @@
 #include "snapframe_host.h"
+#include "snap_frame/snap_frame.h"
 
 #include <algorithm>
 #include <atomic>
@@ -79,6 +80,9 @@ std::atomic<uint64_t> g_generatedFrames{0};
 std::atomic<uint64_t> g_skippedFrames{0};
 std::atomic<int> g_midpointFrameReady{0};
 std::atomic<uint64_t> g_copyCallbackCalls{0};
+std::atomic<uint64_t> g_backendFrameId{0};
+SnapFrameEngine* g_snapFrameEngine = nullptr;
+std::mutex g_backendMutex;
 std::atomic<int> g_resetHistoryRequested{0};
 
 DxvkDevice* g_device = nullptr;
@@ -1041,7 +1045,7 @@ bool createHistory(DxvkDevice* device, uint32_t width, uint32_t height, VkFormat
     return true;
 }
 
-void snapframeCopyFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
+static void snapframeDxvkProcessFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
                         uint32_t width, uint32_t height, uint32_t formatValue) {
     if (!g_initialized.load(std::memory_order_acquire))
         return;
@@ -1294,6 +1298,94 @@ void snapframeCopyFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
                 width, height);
 }
 
+
+struct SnapFrameDxvkFrameArgs {
+    void* context;
+    void* sourceView;
+    void* device;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+};
+
+SnapFrameStatus snapframeBackendInitialize(
+    void*, const SnapFrameEngineConfig* config) {
+    return config ? SNAP_FRAME_OK : SNAP_FRAME_ERROR_INVALID_ARGUMENT;
+}
+
+SnapFrameStatus snapframeBackendUpdateConfig(
+    void*, const SnapFrameEngineConfig* config) {
+    if (!config) return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
+    g_enabled.store(config->enabled ? 1 : 0, std::memory_order_release);
+    g_flowScalePercent = config->flow_scale_percent;
+    g_motionAnalysisEnabled = config->motion_analysis != 0;
+    g_profilingEnabled = config->profiling_enabled != 0;
+    g_diagnosticSuiteEnabled = config->diagnostic_suite != 0 && config->motion_analysis != 0;
+    g_diagnosticPhaseFrames = config->diagnostic_phase_frames;
+    g_diagnosticSuiteComplete = false;
+    g_diagnosticPhase = UINT32_MAX;
+    g_resetHistoryRequested.store(1, std::memory_order_release);
+    return SNAP_FRAME_OK;
+}
+
+void snapframeBackendShutdown(void*) {
+    /* DXVK resources are released by the registered device-destroy hook. */
+}
+
+void snapframeBackendResetHistory(void*, uint32_t) {
+    g_resetHistoryRequested.store(1, std::memory_order_release);
+}
+
+SnapFrameStatus snapframeBackendProcessFrame(
+    void*, const SnapFrameFrameInput* input, SnapFrameFrameOutput* output) {
+    if (!input || !output || !input->native_frame)
+        return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
+    const auto* frame = reinterpret_cast<const SnapFrameDxvkFrameArgs*>(input->native_frame);
+    snapframeDxvkProcessFrame(frame->context, frame->sourceView, frame->device,
+        frame->width, frame->height, frame->format);
+    /* This reports a completed GPU midpoint image, not a successful WSI present.
+     * DXVK's present-result hook remains the authority for queued-present stats. */
+    output->generated_frames =
+        g_midpointFrameReady.load(std::memory_order_acquire) ? 1u : 0u;
+    return SNAP_FRAME_OK;
+}
+
+void snapframeCopyFrame(void* contextPtr, void* sourceViewPtr, void* devicePtr,
+                        uint32_t width, uint32_t height, uint32_t formatValue) {
+    if (!g_initialized.load(std::memory_order_acquire))
+        return;
+    /* Keep the legacy reset/bypass path alive while disabled. It consumes pending
+     * resource resets at the render boundary and never dispatches GPU work. */
+    if (!g_enabled.load(std::memory_order_acquire)) {
+        snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
+            width, height, formatValue);
+        return;
+    }
+    std::lock_guard<std::mutex> engineLock(g_backendMutex);
+    if (!g_snapFrameEngine) {
+        snapframeDxvkProcessFrame(contextPtr, sourceViewPtr, devicePtr,
+            width, height, formatValue);
+        return;
+    }
+    SnapFrameDxvkFrameArgs frame{contextPtr, sourceViewPtr, devicePtr,
+        width, height, formatValue};
+    SnapFrameFrameInput input{};
+    input.struct_size = sizeof(input);
+    input.frame_id = g_backendFrameId.fetch_add(1, std::memory_order_relaxed) + 1u;
+    input.width = width;
+    input.height = height;
+    input.format = formatValue;
+    input.native_frame = reinterpret_cast<uintptr_t>(&frame);
+    SnapFrameFrameOutput output{};
+    output.struct_size = sizeof(output);
+    const SnapFrameStatus status = snap_frame_process(g_snapFrameEngine, &input, &output);
+    if (status < 0) {
+        g_skippedFrames.fetch_add(1, std::memory_order_relaxed);
+        snapframeEvent(input.frame_id, "backend_v1_process_failed", width, height,
+            "portable_core_rejected_or_backend_failed; real_frame_present_fallback");
+    }
+}
+
 void snapframeDeviceDestroyed(void* devicePtr) {
     auto* device = reinterpret_cast<DxvkDevice*>(devicePtr);
     if (g_device == device || g_lumaShaderDevice == device) {
@@ -1456,8 +1548,37 @@ extern "C" int snapframe_host_init(const SnapFrameConfig *config) {
     g_midpointFrameReady.store(0, std::memory_order_relaxed);
     g_skippedFrames.store(0, std::memory_order_relaxed);
     g_copyCallbackCalls.store(0, std::memory_order_relaxed);
+    g_backendFrameId.store(0, std::memory_order_relaxed);
     g_resetHistoryRequested.store(1, std::memory_order_release);
     g_initialized.store(1, std::memory_order_release);
+
+    SnapFrameEngineConfig engineConfig{};
+    snap_frame_default_config(&engineConfig);
+    engineConfig.enabled = validated.enabled ? 1u : 0u;
+    engineConfig.multiplier = static_cast<uint32_t>(validated.multiplier);
+    engineConfig.quality = static_cast<SnapFrameEngineQuality>(validated.quality);
+    engineConfig.flow_scale_percent = static_cast<uint32_t>(validated.flow_scale_percent);
+    engineConfig.motion_analysis = validated.motion_analysis ? 1u : 0u;
+    engineConfig.profiling_enabled = validated.profiling_enabled ? 1u : 0u;
+    engineConfig.diagnostic_suite = validated.diagnostic_suite ? 1u : 0u;
+    engineConfig.diagnostic_phase_frames = static_cast<uint32_t>(validated.diagnostic_phase_frames);
+    SnapFrameBackendV1 backend{};
+    backend.struct_size = sizeof(backend);
+    backend.api_version = SNAP_FRAME_API_VERSION;
+    backend.initialize = snapframeBackendInitialize;
+    backend.shutdown = snapframeBackendShutdown;
+    backend.update_config = snapframeBackendUpdateConfig;
+    backend.reset_history = snapframeBackendResetHistory;
+    backend.process_frame = snapframeBackendProcessFrame;
+    {
+        std::lock_guard<std::mutex> engineLock(g_backendMutex);
+        g_snapFrameEngine = snap_frame_create(&engineConfig, &backend);
+    }
+    if (!g_snapFrameEngine) {
+        g_initialized.store(0, std::memory_order_release);
+        snapframeLog("SnapFrame: failed to create SnapFrameBackendV1 engine; disabling generation\n");
+        return 0;
+    }
 
     snapframe_dxvk_set_copy_hook(snapframeCopyFrame);
     snapframe_dxvk_set_generation_hooks(
@@ -1484,6 +1605,12 @@ extern "C" void snapframe_host_shutdown(void) {
     snapframe_dxvk_set_copy_hook(nullptr);
     snapframe_dxvk_set_generation_hooks(nullptr, nullptr, nullptr);
     g_midpointFrameReady.store(0, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> engineLock(g_backendMutex);
+        SnapFrameEngine* engine = g_snapFrameEngine;
+        g_snapFrameEngine = nullptr;
+        if (engine) snap_frame_destroy(engine);
+    }
     /* Keep the device-destroy hook registered so owned images are released
      * before DXVK tears down the device allocator. */
 }
@@ -1495,6 +1622,11 @@ extern "C" int snapframe_host_active(void) {
 
 extern "C" int snapframe_host_set_enabled(int enabled) {
     if (!g_initialized.load(std::memory_order_acquire)) return 0;
+    {
+        std::lock_guard<std::mutex> engineLock(g_backendMutex);
+        if (g_snapFrameEngine)
+            return snap_frame_set_enabled(g_snapFrameEngine, enabled ? 1u : 0u) == SNAP_FRAME_OK;
+    }
     g_enabled.store(enabled ? 1 : 0, std::memory_order_release);
     g_resetHistoryRequested.store(1, std::memory_order_release);
     return 1;

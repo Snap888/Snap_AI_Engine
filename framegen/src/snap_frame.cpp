@@ -81,6 +81,14 @@ extern "C" void snap_frame_destroy(SnapFrameEngine* e) {
 extern "C" SnapFrameStatus snap_frame_set_config(
     SnapFrameEngine* e, const SnapFrameEngineConfig* c) {
   if (!e || !validConfig(c)) return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
+  /* Serialize config changes with process_frame so backends may safely update
+   * render-thread-owned state without racing GPU command recording. */
+  if (e->processing.test_and_set(std::memory_order_acquire))
+    return SNAP_FRAME_ERROR_BUSY;
+  struct ProcessingGuard {
+    std::atomic_flag& flag;
+    ~ProcessingGuard() { flag.clear(std::memory_order_release); }
+  } guard{e->processing};
   std::lock_guard<std::mutex> lock(e->config_mutex);
   if (e->backend.update_config) {
     const auto status = e->backend.update_config(e->backend.user_data, c);
