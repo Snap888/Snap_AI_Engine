@@ -25,7 +25,7 @@ The adapter targets `Snap888/Skyrim_Android`, branch `frame_gen`, source commit 
 The downstream branch `Snap888/Skyrim_Android:snapframe-backend-v1` already wires the dependency in `android/app/jni/CMakeLists.txt`:
 
 1. Build `SDL2`, `dxvk` and `lsfg` first so the exact `dxvk_d3d9` target exists.
-2. Fetch the pinned Snap_AI_Engine revision `aaf0c8472c2106244aeaae59f4a35d39a5352762`.
+2. Fetch the pinned Snap_AI_Engine revision `12d89ff6b8adbb4da642912c13afec95f58bdc5e`.
 3. Set `SNAP_FRAME_DXVK_SOURCE_DIR` to the local `android/app/jni/dxvk` source tree.
 4. Enable `SNAP_FRAME_BUILD_DXVK_LEGACY`; disable portable tests/examples for the app build.
 5. The optional target compiles `snapframe_host.cpp` and links `dxvk_d3d9` plus `SnapFrame::Engine`.
