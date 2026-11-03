@@ -28,7 +28,7 @@ if(SNAP_FRAME_BUILD_DXVK_LEGACY)
 endif()
 
 if(SNAP_FRAME_BUILD_EXAMPLE)
-  add_executable(snap_frame_mock_example ../../examples/framegen_mock_backend.cpp)
+  add_executable(snap_frame_mock_example ../examples/framegen_mock_backend.cpp)
   target_link_libraries(snap_frame_mock_example PRIVATE SnapFrame::Engine)
 endif()
 
