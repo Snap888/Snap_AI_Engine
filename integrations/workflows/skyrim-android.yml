@@ -1,0 +1,44 @@
+name: Skyrim Android + SnapFrame integration
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/src/main/cpp/**"
+      - "app/build.gradle*"
+      - "build.gradle*"
+      - "settings.gradle*"
+      - "gradle/**"
+      - ".github/workflows/skyrim-android.yml"
+  push:
+    paths:
+      - "app/src/main/cpp/**"
+      - "app/build.gradle*"
+      - "build.gradle*"
+      - "settings.gradle*"
+      - "gradle/**"
+      - ".github/workflows/skyrim-android.yml"
+permissions:
+  contents: read
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Build debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyrim-android-debug-apk
+          path: "**/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
+          retention-days: 7
