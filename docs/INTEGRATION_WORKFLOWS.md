@@ -1,20 +1,26 @@
 # Host integration workflows
 
-This repository can continuously build the portable library for Linux, Windows and Android arm64. Host application workflows must run in the host repositories because only those repositories own their Gradle/CMake projects, SDK pins, signing configuration and DXVK fork revisions.
+Three downstream branches now carry CI workflows:
 
-Templates are in `integrations/workflows/`. Copy the matching file into the host repository's `.github/workflows/` directory and adjust the documented source paths/build command to that repository. The templates intentionally do not claim to build a complete host until the concrete adapter sources are integrated there.
+- [Skyrim_Android `snapframe-backend-v1`](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1/.github/workflows): configures and compiles `snap_frame_dxvk_legacy` against the exact Skyrim DXVK source. A separate manual job can build the full APK when generated `gen/` sources or a `gen_url` archive are supplied.
+- [Winlator dev OSS `snapframe-backend-v1`](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1/.github/workflows): runs portable SnapFrame core tests and cross-compiles the Android arm64 library. It does not yet validate a Winlator DXVK hook adapter.
+- [WinNative `snapframe-backend-v1`](https://github.com/Snap888/WinNative/tree/snapframe-backend-v1/.github/workflows): runs portable SnapFrame core tests and cross-compiles the Android arm64 library. It does not yet validate a compositor adapter.
 
-## Skyrim_Android
+The workflow templates are also kept in `integrations/workflows/`. Host application workflows must run in the host repositories because only those repositories own their Gradle/CMake projects, SDK pins, signing configuration and DXVK/compositor revisions.
 
-Use `skyrim-android.yml` after adding the SnapFrame CMake target to the app's native build and wiring the DXVK hooks. It builds the Android app with the host Gradle wrapper. Keep signing secrets out of pull-request workflows.
+## Next integration steps
 
-## Winlator
+### Skyrim_Android
 
-Use `winlator-dxvk.yml` only after selecting the exact Winlator DXVK fork/ref and adding the adapter target to its native build. The workflow must build the same fork used by the runtime; upstream DXVK success is not a substitute.
+Fix any compile errors in the DXVK adapter workflow, then run the full APK workflow with generated `gen/` sources. Test the adapter on Adreno and Mali devices, including rapid toggles, resize, scene cuts, device recreation, LSFG mutual exclusion, GPU timings, present results and audio stability.
 
-## WinNative
+### Winlator
 
-Use `winnative.yml` after implementing the WinNative compositor adapter and adding its CMake target. The build must use the host's supported Windows SDK, architecture and Vulkan loader/runtime assumptions.
+Select the exact Winlator fork and DXVK revision used by the runtime. Port the DXVK copy/generation/present hooks to that fork and build the adapter against its private headers. A passing portable-library job is not proof of this integration.
+
+### WinNative
+
+Implement a compositor backend around the existing Wayland `vkp_framegen_run` / `fge_process` lifecycle and the compositor's own Vulkan device/queue. Preserve existing LSFG/DIS selection and pacing; do not reuse the Skyrim DXVK adapter directly.
 
 ## CI security
 
