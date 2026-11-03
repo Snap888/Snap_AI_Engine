@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "snap_frame/snap_frame.h"
 #include <cassert>
 #include <cstdint>
