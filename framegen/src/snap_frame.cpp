@@ -118,7 +118,7 @@ extern "C" SnapFrameStatus snap_frame_set_quality(SnapFrameEngine* e, SnapFrameQ
 extern "C" SnapFrameStatus snap_frame_process(SnapFrameEngine* e,
     const SnapFrameFrameInput* in, SnapFrameFrameOutput* out) {
   if (!e || !in || !out || in->struct_size < sizeof(*in)
-      || out->struct_size < sizeof(*out) || !in->width || !in->height)
+      || out->struct_size < sizeof(*out) || !in->frame_id || !in->width || !in->height)
     return SNAP_FRAME_ERROR_INVALID_ARGUMENT;
   e->frames_seen.fetch_add(1, std::memory_order_relaxed);
   if (e->processing.test_and_set(std::memory_order_acquire))
@@ -146,12 +146,22 @@ extern "C" SnapFrameStatus snap_frame_process(SnapFrameEngine* e,
   out->struct_size = sizeof(*out);
   const auto status = e->backend.process_frame(e->backend.user_data, in, out);
   e->last_frame_id.store(in->frame_id, std::memory_order_relaxed);
-  if (status == SNAP_FRAME_OK) {
+  const bool validTimings = std::isfinite(out->capture_gpu_ms) && out->capture_gpu_ms >= 0.0f
+    && std::isfinite(out->preprocess_gpu_ms) && out->preprocess_gpu_ms >= 0.0f
+    && std::isfinite(out->flow_gpu_ms) && out->flow_gpu_ms >= 0.0f
+    && std::isfinite(out->consistency_gpu_ms) && out->consistency_gpu_ms >= 0.0f
+    && std::isfinite(out->warp_gpu_ms) && out->warp_gpu_ms >= 0.0f
+    && std::isfinite(out->composite_gpu_ms) && out->composite_gpu_ms >= 0.0f;
+  if (status == SNAP_FRAME_OK && validTimings && out->generated_frames <= c.multiplier - 1u) {
     e->frames_processed.fetch_add(1, std::memory_order_relaxed);
     e->generated_frames.fetch_add(out->generated_frames, std::memory_order_relaxed);
     e->last_total_gpu_ms.store(totalGpu(*out), std::memory_order_relaxed);
   } else {
     e->failed_frames.fetch_add(1, std::memory_order_relaxed);
+    if (status == SNAP_FRAME_OK) {
+      e->processing.clear(std::memory_order_release);
+      return SNAP_FRAME_ERROR_BACKEND;
+    }
   }
   e->processing.clear(std::memory_order_release);
   return status;
