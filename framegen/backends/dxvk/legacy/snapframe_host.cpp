@@ -20,7 +20,10 @@
 #include "dxvk_shader.h"
 #include "spirv_code_buffer.h"
 
-#if __has_include("generated/snapframe_shaders.h")
+#if __has_include("snapframe_shaders.h")
+  #include "snapframe_shaders.h"
+  #define SNAPFRAME_HAS_LUMA_SHADER 1
+#elif __has_include("generated/snapframe_shaders.h")
   #include "generated/snapframe_shaders.h"
   #define SNAPFRAME_HAS_LUMA_SHADER 1
 #else

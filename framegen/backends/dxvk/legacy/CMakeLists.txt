@@ -31,7 +31,7 @@ add_custom_command(
   VERBATIM)
 add_custom_target(snapframe_dxvk_shaders DEPENDS "${SNAPFRAME_GENERATED_HEADER}")
 
-add_library(snap_frame_dxvk_legacy STATIC snapframe_host.cpp snapframe_bootstrap.c)
+add_library(snap_frame_dxvk_legacy STATIC snapframe_host.cpp)
 add_dependencies(snap_frame_dxvk_legacy snapframe_dxvk_shaders)
 target_include_directories(snap_frame_dxvk_legacy PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
