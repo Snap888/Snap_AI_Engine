@@ -9,7 +9,7 @@ static SnapFrameStatus process(void* user,const SnapFrameFrameInput*,SnapFrameFr
   return SNAP_FRAME_OK;
 }
 int main() {
-  SnapFrameConfig config; snap_frame_default_config(&config); config.enabled=1;
+  SnapFrameEngineConfig config; snap_frame_default_config(&config); config.enabled=1;
   HostBackend host;
   SnapFrameBackendV1 backend{}; backend.struct_size=sizeof(backend);
   backend.api_version=SNAP_FRAME_API_VERSION; backend.user_data=&host;
