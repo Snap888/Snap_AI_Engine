@@ -35,7 +35,7 @@ int main() {
   assert(f.updates==2);
   in.frame_id=3; in.scene_cut=1;
   assert(snap_frame_process(e,&in,&out)==SNAP_FRAME_OK);
-  assert(f.resets==1);
+  assert(f.resets==2); // enable transition + scene cut
   in.frame_id=3;
   assert(snap_frame_process(e,&in,&out)==SNAP_FRAME_ERROR_FRAME_ORDER);
   SnapFrameStats stats{}; stats.struct_size=sizeof(stats);
