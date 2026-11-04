@@ -9,7 +9,7 @@ layout(set = 0, binding = 3) uniform sampler2D uValidation;
 layout(set = 0, binding = 4) uniform sampler2D uStaticMask;
 layout(set = 0, binding = 5, rgba16f) writeonly uniform image2D uTarget;
 layout(push_constant) uniform Push {
-    vec4 dims;   // dstW, dstH, flowW, flowH
+    vec4 dims;   // dstW, dstH, L0 lumaW, L0 lumaH
     vec4 params; // x = interpolation time t
     vec4 tune;   // x = gamut strength, y = confidence floor, z = sharpen
 } pc;
@@ -18,14 +18,16 @@ void main() {
     ivec2 dst = imageSize(uTarget);
     if (any(greaterThanEqual(p, dst))) return;
     vec2 uv = (vec2(p) + 0.5) / vec2(dst);
-    vec2 flowSize = max(pc.dims.zw, vec2(1.0));
+    // Flow vectors are measured in L0 luma pixels. Convert to normalized
+    // UV using the L0 image extent, not the flow-grid extent.
+    vec2 lumaSize = max(pc.dims.zw, vec2(1.0));
     float t = clamp(pc.params.x, 0.0, 1.0);
     vec4 flow = texture(uBackwardFlow, uv);
     vec2 backward = flow.xy;
     float confidence = clamp(flow.w, 0.0, 1.0)
                      * clamp(texture(uValidation, uv).r, 0.0, 1.0);
-    vec2 uvPrev = uv + backward * (t / flowSize);
-    vec2 uvCurr = uv - backward * ((1.0 - t) / flowSize);
+    vec2 uvPrev = uv + backward * (t / lumaSize);
+    vec2 uvCurr = uv - backward * ((1.0 - t) / lumaSize);
     bool inPrev = all(greaterThanEqual(uvPrev, vec2(0.0)))
                && all(lessThan(uvPrev, vec2(1.0)));
     bool inCurr = all(greaterThanEqual(uvCurr, vec2(0.0)))
