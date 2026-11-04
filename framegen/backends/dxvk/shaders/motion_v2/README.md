@@ -63,12 +63,12 @@ its RGBA16F storage output.
   - `dims = vec4(lumaW, lumaH, blocksX, blocksY)`
   - `tune = vec4(costScale, agreementScale, 0, 0)`
 - Validation push:
-  - `dims = vec4(flowW, flowH, blocksX, blocksY)`
+  - `dims = vec4(lumaW, lumaH, blocksX, blocksY)`
   - `tune = vec4(roundTripLow, roundTripHigh, 0, 0)`
 
 - Static-mask push: `dims = vec4(width, height, thresholdLow, thresholdHigh)`.
 - Interpolation push:
-  - `dims = vec4(dstW, dstH, flowW, flowH)`
+  - `dims = vec4(dstW, dstH, lumaW, lumaH)`
   - `params.x = interpolationTime`
   - `tune = vec4(gamutStrength, confidenceFloor, sharpen, 0)`
 
@@ -84,3 +84,14 @@ readback and persistent resource lifetime. No pass may wait for GPU completion.
 The shader family is a source-level port, not a drop-in pipeline: the host must
 validate formats, filtering, workgroup limits, barriers and frame-history
 ownership before dispatch.
+
+
+## Coordinate normalization correction — 2026-11-04
+
+All V2 motion vectors are expressed in L0 luma pixels. Validation must divide
+reprojected L0 pixel positions by the L0 luma image extent before sampling the
+normalized flow texture. Interpolation must likewise divide L0-pixel motion by
+the L0 luma extent when converting displacement to normalized output UV.
+Neither pass may use the smaller flow-grid width/height as the normalization
+denominator. The validation and interpolation push-constant contracts above
+therefore carry L0 luma dimensions, not flow-grid dimensions.
