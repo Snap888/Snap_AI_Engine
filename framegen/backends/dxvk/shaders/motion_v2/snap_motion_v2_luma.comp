@@ -1,0 +1,20 @@
+#version 450
+// SnapMotionV2 L0: Rec.709 luma at the configured motion-field resolution.
+// This pass reads a real source frame; generated frames must never feed history.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D uSource;
+layout(set = 0, binding = 4, r16f) writeonly uniform image2D uLuma;
+
+layout(push_constant) uniform Push {
+    vec4 dims; // source width, source height, L0 width, L0 height
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 dst = imageSize(uLuma);
+    if (any(greaterThanEqual(p, dst))) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(dst);
+    vec3 rgb = texture(uSource, uv).rgb;
+    float y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    imageStore(uLuma, p, vec4(y, 0.0, 0.0, 0.0));
+}
