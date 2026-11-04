@@ -1,0 +1,59 @@
+#version 450
+// Second-stage reduction: compact partials into one frame-tagged metrics record.
+// The host may copy this tiny SSBO asynchronously; never wait in the render path.
+layout(local_size_x = 64, local_size_y = 1) in;
+struct PartialMetrics { vec4 motion; vec4 quality; };
+layout(set = 0, binding = 0, std430) readonly buffer PartialBuffer {
+    PartialMetrics partials[];
+} inPart;
+struct MotionMetricsResult {
+    uvec4 identity; // frameId low/high, timestampNs low/high
+    uvec4 extent;   // source width, source height, flow width, flow height
+    uvec4 flags;    // sceneCutCandidate, telemetryValid, sampleCount, reserved
+    vec4 motion;    // mean magnitude px, normalized complexity, mean confidence, low-confidence ratio
+    vec4 quality;   // occlusion ratio, static ratio, artifact risk, mean photometric delta
+};
+layout(set = 0, binding = 1, std430) writeonly buffer ResultBuffer {
+    MotionMetricsResult result;
+} outResult;
+layout(push_constant) uniform Push {
+    uvec4 identity;
+    uvec4 extent;
+    uvec4 counts; // x = partial count, y = flow-cell count, z/w reserved
+} pc;
+shared vec4 sMotion[64];
+shared vec4 sQuality[64];
+void main() {
+    uint lane = gl_LocalInvocationIndex;
+    vec4 motion = vec4(0.0);
+    vec4 quality = vec4(0.0);
+    for (uint i = lane; i < pc.counts.x; i += 64u) {
+        motion += inPart.partials[i].motion;
+        quality += inPart.partials[i].quality;
+    }
+    sMotion[lane] = motion;
+    sQuality[lane] = quality;
+    barrier();
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (lane < stride) {
+            sMotion[lane] += sMotion[lane + stride];
+            sQuality[lane] += sQuality[lane + stride];
+        }
+        barrier();
+    }
+    if (lane == 0u) {
+        float count = max(float(pc.counts.y), 1.0);
+        vec4 m = sMotion[0] / count;
+        vec4 q = sQuality[0] / count;
+        float artifactRisk = clamp(0.50 * m.w + 0.30 * q.x
+                                 + 0.20 * m.y, 0.0, 1.0);
+        bool sceneCut = q.z > 0.25 && m.z < 0.25 && q.y < 0.20;
+        outResult.result.identity = pc.identity;
+        outResult.result.extent = pc.extent;
+        outResult.result.flags = uvec4(sceneCut ? 1u : 0u,
+                                       pc.counts.y > 0u ? 1u : 0u,
+                                       pc.counts.y, 0u);
+        outResult.result.motion = vec4(m.x, m.y, m.z, m.w);
+        outResult.result.quality = vec4(q.x, q.y, artifactRisk, q.z);
+    }
+}
