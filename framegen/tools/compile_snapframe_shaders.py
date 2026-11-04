@@ -25,6 +25,8 @@ SHADERS = [
     ("snap_motion_v2_luma", SHADER_DIR / "motion_v2/snap_motion_v2_luma.comp"),
     ("snap_motion_v2_downsample", SHADER_DIR / "motion_v2/snap_motion_v2_downsample.comp"),
     ("snap_motion_v2_search", SHADER_DIR / "motion_v2/snap_motion_v2_search.comp"),
+    ("snap_motion_v2_refine", SHADER_DIR / "motion_v2/snap_motion_v2_refine.comp"),
+    ("snap_motion_v2_validation", SHADER_DIR / "motion_v2/snap_motion_v2_validation.comp"),
 ]
 
 
