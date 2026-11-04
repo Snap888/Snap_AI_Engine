@@ -1,0 +1,33 @@
+#version 450
+// SnapMotionV2 forward/backward round-trip validation.
+// Backward vectors map current -> previous; forward vectors map previous -> current.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D uBackwardFlow;
+layout(set = 0, binding = 1) uniform sampler2D uForwardFlow;
+layout(set = 0, binding = 4, r16f) writeonly uniform image2D uValidation;
+layout(push_constant) uniform Push {
+    vec4 dims; // flow width, flow height, blocksX, blocksY
+    vec4 tune; // x = round-trip low threshold, y = high threshold
+} pc;
+void main() {
+    ivec2 block = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 blocks = imageSize(uValidation);
+    if (any(greaterThanEqual(block, blocks))) return;
+    vec2 flowSize = max(pc.dims.xy, vec2(1.0));
+    vec4 backward = texelFetch(uBackwardFlow, block, 0);
+    vec2 currentCenter = (vec2(block) + 0.5) * 8.0;
+    vec2 previousPosition = currentCenter + backward.xy;
+    vec2 previousUv = previousPosition / flowSize;
+    bool inside = all(greaterThanEqual(previousUv, vec2(0.0)))
+               && all(lessThan(previousUv, vec2(1.0)));
+    float validity = 0.0;
+    if (inside) {
+        vec2 forward = texture(uForwardFlow, previousUv).xy;
+        float errorPx = length(backward.xy + forward);
+        float lo = max(pc.tune.x, 0.001);
+        float hi = max(pc.tune.y, lo + 0.001);
+        validity = (1.0 - smoothstep(lo, hi, errorPx))
+                 * clamp(backward.w, 0.0, 1.0);
+    }
+    imageStore(uValidation, block, vec4(validity, 0.0, 0.0, 1.0));
+}
