@@ -25,10 +25,19 @@ the current frame's coarse field.
 Refinement and validation are separate so their GPU cost can be measured
 independently and validation can be toggled in controlled comparisons.
 
+## Stage 4/5 — Artifact suppression and interpolation
+
+6. `snap_motion_v2_static_mask.comp`: temporal stability mask from two real
+   frames. It preserves static pixels but does not semantically label HUD.
+7. `snap_motion_v2_interpolation.comp`: time-parametric bidirectional warp,
+   confidence/validation fallback, 5-tap neighborhood gamut clamp, optional
+   real-frame detail recovery and static-mask override. Output is RGBA16F.
+
 ## Descriptor and push-constant contract
 
-All shaders use set 0, binding 0 for a primary sampled image and binding 4 for
-the storage output.
+All shaders use set 0, binding 0 for a primary sampled image. Most use binding 4
+for storage output; interpolation uses bindings 0–4 for inputs and binding 5 for
+its RGBA16F storage output.
 
 - Luma push: `vec4(sourceW, sourceH, lumaW, lumaH)`.
 - Downsample push: `vec4(lumaW, lumaH, halfW, halfH)`.
@@ -42,6 +51,12 @@ the storage output.
 - Validation push:
   - `dims = vec4(flowW, flowH, blocksX, blocksY)`
   - `tune = vec4(roundTripLow, roundTripHigh, 0, 0)`
+
+- Static-mask push: `dims = vec4(width, height, thresholdLow, thresholdHigh)`.
+- Interpolation push:
+  - `dims = vec4(dstW, dstH, flowW, flowH)`
+  - `params.x = interpolationTime`
+  - `tune = vec4(gamutStrength, confidenceFloor, sharpen, 0)`
 
 The host adapter owns descriptors, samplers, image layouts, barriers, async
 readback and persistent resource lifetime. No pass may wait for GPU completion.
