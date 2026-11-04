@@ -1,0 +1,95 @@
+#version 450
+// Shared coarse/fine block search. All vectors are expressed in L0 pixels.
+// Coarse mode: L1 luma, pixelScale=2, temporal seed and spatial neighbours.
+// Fine mode: L0 luma, pixelScale=1, upsampled coarse field as seed.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D uLumaCurr;
+layout(set = 0, binding = 1) uniform sampler2D uLumaPrev;
+layout(set = 0, binding = 2) uniform sampler2D uFlowSeed;
+layout(set = 0, binding = 4, rgba16f) writeonly uniform image2D uFlowOut;
+
+layout(push_constant) uniform Push {
+    vec4 dims;  // lumaW, lumaH, blocksX, blocksY
+    vec4 geom;  // pixelScale, firstStep, minStep, useNeighbours
+    vec4 flags; // x = temporal history valid
+} pc;
+
+const int BLOCK = 8;
+const float MAX_MV = 64.0;
+const float INVALID_COST = 1.0e8;
+
+float blockSad(ivec2 block, vec2 mv) {
+    ivec2 base = block * BLOCK;
+    ivec2 lumaExtent = textureSize(uLumaCurr, 0);
+    vec2 mvLuma = mv / max(pc.geom.x, 1.0);
+    float sad = 0.0;
+    for (int y = 0; y < BLOCK; ++y) {
+        for (int x = 0; x < BLOCK; ++x) {
+            ivec2 p = base + ivec2(x, y);
+            if (any(greaterThanEqual(p, lumaExtent))) continue;
+            vec2 q = (vec2(p) + 0.5 + mvLuma) / vec2(lumaExtent);
+            // Do not let sampler edge-clamping create false matches at borders.
+            if (any(lessThan(q, vec2(0.0))) || any(greaterThanEqual(q, vec2(1.0))))
+                return INVALID_COST;
+            float a = texelFetch(uLumaCurr, p, 0).r;
+            float b = texture(uLumaPrev, q).r;
+            sad += abs(a - b);
+        }
+    }
+    return sad / float(BLOCK * BLOCK);
+}
+
+vec2 fetchSeed(ivec2 block, ivec2 blocks) {
+    ivec2 safeBlock = clamp(block, ivec2(0), blocks - ivec2(1));
+    vec2 uv = (vec2(safeBlock) + 0.5) / vec2(blocks);
+    return texture(uFlowSeed, uv).xy;
+}
+
+void main() {
+    ivec2 block = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 blocks = ivec2(pc.dims.zw);
+    if (any(greaterThanEqual(block, blocks))) return;
+
+    vec2 candidates[6];
+    int count = 0;
+    candidates[count++] = vec2(0.0);
+    if (pc.flags.x > 0.5) {
+        candidates[count++] = clamp(fetchSeed(block, blocks), vec2(-MAX_MV), vec2(MAX_MV));
+        if (pc.geom.w > 0.5) {
+            candidates[count++] = clamp(fetchSeed(block + ivec2(-1, 0), blocks), vec2(-MAX_MV), vec2(MAX_MV));
+            candidates[count++] = clamp(fetchSeed(block + ivec2( 1, 0), blocks), vec2(-MAX_MV), vec2(MAX_MV));
+            candidates[count++] = clamp(fetchSeed(block + ivec2(0, -1), blocks), vec2(-MAX_MV), vec2(MAX_MV));
+            candidates[count++] = clamp(fetchSeed(block + ivec2(0,  1), blocks), vec2(-MAX_MV), vec2(MAX_MV));
+        }
+    }
+
+    float bestCost = INVALID_COST;
+    vec2 best = vec2(0.0);
+    for (int i = 0; i < count; ++i) {
+        float cost = blockSad(block, candidates[i]);
+        if (cost < bestCost) { bestCost = cost; best = candidates[i]; }
+    }
+
+    // A near-perfect match is already a stable seed (typically static content).
+    if (bestCost < 0.001) {
+        imageStore(uFlowOut, block, vec4(best, bestCost, 1.0));
+        return;
+    }
+
+    int firstStep = max(1, int(pc.geom.y));
+    int minStep = max(1, int(pc.geom.z));
+    for (int step = firstStep; step >= minStep; step >>= 1) {
+        vec2 center = best;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                vec2 mv = clamp(center + vec2(dx * step, dy * step),
+                                vec2(-MAX_MV), vec2(MAX_MV));
+                float cost = blockSad(block, mv);
+                if (cost < bestCost) { bestCost = cost; best = mv; }
+            }
+        }
+    }
+
+    imageStore(uFlowOut, block, vec4(best, bestCost, 1.0));
+}
