@@ -35,7 +35,8 @@ void main() {
             }
             float confidence = clamp(f.w, 0.0, 1.0);
             float validation = texelFetch(uValidation, p, 0).r;
-            float staticValue = texelFetch(uStaticMask, p, 0).r;
+            vec2 flowUv = (vec2(p) + 0.5) / vec2(extent);
+            float staticValue = texture(uStaticMask, flowUv).r;
             ivec2 lumaExtent = textureSize(uCurrentLuma, 0);
             ivec2 center = min(p * 8 + ivec2(4), lumaExtent - ivec2(1));
             float currentY = texelFetch(uCurrentLuma, center, 0).r;
