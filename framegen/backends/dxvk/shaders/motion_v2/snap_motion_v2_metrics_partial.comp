@@ -21,41 +21,35 @@ void main() {
     vec4 quality = vec4(0.0);
     if (all(lessThan(p, extent))) {
         vec4 f = texelFetch(uRefinedFlow, p, 0);
-        if (any(isnan(f)) || any(isinf(f))) {
-            sMotion[lane] = vec4(0.0);
-            sQuality[lane] = vec4(0.0);
-            barrier();
-            for (uint stride = 32u; stride > 0u; stride >>= 1u) {
-                if (lane < stride) {
-                    sMotion[lane] += sMotion[lane + stride];
-                    sQuality[lane] += sQuality[lane + stride];
-                }
-                barrier();
+        bool validFlow = !any(isnan(f)) && !any(isinf(f));
+        if (validFlow) {
+            vec2 left = texelFetch(uRefinedFlow, clamp(p + ivec2(-1, 0), ivec2(0), extent - 1), 0).xy;
+            vec2 right = texelFetch(uRefinedFlow, clamp(p + ivec2(1, 0), ivec2(0), extent - 1), 0).xy;
+            vec2 up = texelFetch(uRefinedFlow, clamp(p + ivec2(0, -1), ivec2(0), extent - 1), 0).xy;
+            vec2 down = texelFetch(uRefinedFlow, clamp(p + ivec2(0, 1), ivec2(0), extent - 1), 0).xy;
+            float variation = 0.0;
+            if (!any(isnan(vec4(left, right))) && !any(isinf(vec4(left, right)))
+                && !any(isnan(vec4(up, down))) && !any(isinf(vec4(up, down)))) {
+                variation = 0.25 * (length(f.xy-left) + length(f.xy-right)
+                                   + length(f.xy-up) + length(f.xy-down));
             }
-            if (lane == 0u) {
-                uint groupIndex = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
-                outPart.partials[groupIndex].motion = sMotion[0];
-                outPart.partials[groupIndex].quality = sQuality[0];
-            }
-            return;
+            float confidence = clamp(f.w, 0.0, 1.0);
+            float validation = texelFetch(uValidation, p, 0).r;
+            float staticValue = texelFetch(uStaticMask, p, 0).r;
+            ivec2 lumaExtent = textureSize(uCurrentLuma, 0);
+            ivec2 center = min(p * 8 + ivec2(4), lumaExtent - ivec2(1));
+            float currentY = texelFetch(uCurrentLuma, center, 0).r;
+            float previousY = texelFetch(uPreviousLuma, center, 0).r;
+            if (isnan(validation) || isinf(validation)) validation = 0.0;
+            if (isnan(staticValue) || isinf(staticValue)) staticValue = 0.0;
+            if (isnan(currentY) || isinf(currentY)) currentY = 0.0;
+            if (isnan(previousY) || isinf(previousY)) previousY = 0.0;
+            motion = vec4(length(f.xy), variation / (1.0 + variation),
+                          confidence, confidence < 0.1 ? 1.0 : 0.0);
+            quality = vec4(1.0 - clamp(validation, 0.0, 1.0),
+                           clamp(staticValue, 0.0, 1.0),
+                           abs(currentY - previousY), 1.0);
         }
-        vec2 left = texelFetch(uRefinedFlow, clamp(p + ivec2(-1, 0), ivec2(0), extent - 1), 0).xy;
-        vec2 right = texelFetch(uRefinedFlow, clamp(p + ivec2(1, 0), ivec2(0), extent - 1), 0).xy;
-        vec2 up = texelFetch(uRefinedFlow, clamp(p + ivec2(0, -1), ivec2(0), extent - 1), 0).xy;
-        vec2 down = texelFetch(uRefinedFlow, clamp(p + ivec2(0, 1), ivec2(0), extent - 1), 0).xy;
-        float magnitude = length(f.xy);
-        float variation = 0.25 * (length(f.xy-left) + length(f.xy-right)
-                                 + length(f.xy-up) + length(f.xy-down));
-        float confidence = clamp(f.w, 0.0, 1.0);
-        float validation = clamp(texelFetch(uValidation, p, 0).r, 0.0, 1.0);
-        float staticValue = clamp(texelFetch(uStaticMask, p, 0).r, 0.0, 1.0);
-        ivec2 lumaExtent = textureSize(uCurrentLuma, 0);
-        ivec2 center = min(p * 8 + ivec2(4), lumaExtent - ivec2(1));
-        float photometricDelta = abs(texelFetch(uCurrentLuma, center, 0).r
-                                   - texelFetch(uPreviousLuma, center, 0).r);
-        motion = vec4(magnitude, variation / (1.0 + variation),
-                      confidence, confidence < 0.1 ? 1.0 : 0.0);
-        quality = vec4(1.0 - validation, staticValue, photometricDelta, 1.0);
     }
     sMotion[lane] = motion;
     sQuality[lane] = quality;
