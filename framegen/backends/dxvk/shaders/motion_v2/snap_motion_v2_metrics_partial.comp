@@ -21,6 +21,24 @@ void main() {
     vec4 quality = vec4(0.0);
     if (all(lessThan(p, extent))) {
         vec4 f = texelFetch(uRefinedFlow, p, 0);
+        if (any(isnan(f)) || any(isinf(f))) {
+            sMotion[lane] = vec4(0.0);
+            sQuality[lane] = vec4(0.0);
+            barrier();
+            for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+                if (lane < stride) {
+                    sMotion[lane] += sMotion[lane + stride];
+                    sQuality[lane] += sQuality[lane + stride];
+                }
+                barrier();
+            }
+            if (lane == 0u) {
+                uint groupIndex = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+                outPart.partials[groupIndex].motion = sMotion[0];
+                outPart.partials[groupIndex].quality = sQuality[0];
+            }
+            return;
+        }
         vec2 left = texelFetch(uRefinedFlow, clamp(p + ivec2(-1, 0), ivec2(0), extent - 1), 0).xy;
         vec2 right = texelFetch(uRefinedFlow, clamp(p + ivec2(1, 0), ivec2(0), extent - 1), 0).xy;
         vec2 up = texelFetch(uRefinedFlow, clamp(p + ivec2(0, -1), ivec2(0), extent - 1), 0).xy;
