@@ -69,3 +69,23 @@ The separate `framegen/backends/dxvk/shaders/motion_v2/` namespace now contains:
 All V2 shader sources are included in the shader compiler and validated as Vulkan 1.1 SPIR-V in CI run [#41810539818](https://github.com/Snap888/Snap_AI_Engine/actions/runs/41810539818). The portable core unit tests, SnapFrame build and standalone SnapFrame tests also passed in that run.
 
 This is shader compilation validation only. It does not prove descriptor compatibility with DXVK, image format support on Adreno, synchronization correctness, visual quality, performance, or Skyrim runtime behavior. No V2 shader is currently dispatched by the game.
+
+
+## Async GPU telemetry reduction
+
+Two compute passes are now present in the V2 shader namespace:
+- workgroup partial reduction (8x8 cells per group) computes motion magnitude,
+  normalized local vector variation, mean confidence, low-confidence ratio,
+  occlusion ratio, static ratio and same-position luma delta;
+- final reduction produces one 80-byte record tagged with source frame ID,
+  timestamp and extent. It marks the record invalid when less than 90% of the
+  expected flow cells contributed valid samples.
+
+The static mask is sampled in normalized flow UV so a full-resolution mask can
+be reduced against the lower-resolution flow grid. The final record is designed
+for an asynchronous small-buffer readback; full flow-vector readback and GPU
+waits are not part of the design.
+
+Artifact risk and scene-cut are provisional heuristics. They must be calibrated
+against real scenes and must not drive Snap AI until DXVK integration proves
+that each record's frame ID and history epoch match the source frame.
