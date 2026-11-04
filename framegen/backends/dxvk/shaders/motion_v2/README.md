@@ -33,6 +33,20 @@ independently and validation can be toggled in controlled comparisons.
    confidence/validation fallback, 5-tap neighborhood gamut clamp, optional
    real-frame detail recovery and static-mask override. Output is RGBA16F.
 
+## Stage 6 — GPU metrics reduction
+
+8. `snap_motion_v2_metrics_partial.comp`: per-workgroup reduction of motion
+   magnitude, local vector variation, confidence, low-confidence ratio,
+   occlusion ratio, static ratio and mean photometric delta.
+9. `snap_motion_v2_metrics_final.comp`: reduces the compact partial buffer into
+   one frame-tagged scalar record. It emits a scene-cut *candidate* and marks
+   telemetry invalid if fewer than 90% of expected flow cells were valid.
+
+The reduction is two-pass to avoid global atomics. The host can asynchronously
+copy only the final small record; it must not read back full flow vectors or wait
+for the GPU. Artifact risk and scene-cut are heuristics and require device/scene
+validation before they drive AI decisions.
+
 ## Descriptor and push-constant contract
 
 All shaders use set 0, binding 0 for a primary sampled image. Most use binding 4
@@ -57,6 +71,13 @@ its RGBA16F storage output.
   - `dims = vec4(dstW, dstH, flowW, flowH)`
   - `params.x = interpolationTime`
   - `tune = vec4(gamutStrength, confidenceFloor, sharpen, 0)`
+
+Metrics partial push constants: none; dispatch dimensions define the flow grid.
+The partial buffer stores two vec4 sums per workgroup. Metrics-final push constants:
+`identity = uvec4(frameIdLo, frameIdHi, timestampLo, timestampHi)`,
+`extent = uvec4(sourceW, sourceH, flowW, flowH)`, and
+`counts = uvec4(partialCount, expectedFlowCells, 0, 0)`. The final SSBO record is
+80 bytes: identity, extent, flags, motion metrics and quality metrics.
 
 The host adapter owns descriptors, samplers, image layouts, barriers, async
 readback and persistent resource lifetime. No pass may wait for GPU completion.
