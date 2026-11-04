@@ -1,0 +1,25 @@
+#version 450
+// SnapMotionV2 L0 -> L1. L1 is half-resolution and is searched first.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D uLumaL0;
+layout(set = 0, binding = 4, r16f) writeonly uniform image2D uLumaL1;
+
+layout(push_constant) uniform Push {
+    vec4 dims; // L0 width, L0 height, L1 width, L1 height
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 dst = imageSize(uLumaL1);
+    if (any(greaterThanEqual(p, dst))) return;
+    ivec2 src = textureSize(uLumaL0, 0);
+    ivec2 base = p * 2;
+    float sum = 0.0;
+    for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 2; ++x) {
+            ivec2 q = min(base + ivec2(x, y), src - ivec2(1));
+            sum += texelFetch(uLumaL0, q, 0).r;
+        }
+    }
+    imageStore(uLumaL1, p, vec4(sum * 0.25, 0.0, 0.0, 0.0));
+}
