@@ -22,6 +22,9 @@ SHADERS = [
     ("block_match_flow", SHADER_DIR / "block_match_flow.comp"),
     ("flow_consistency", SHADER_DIR / "flow_consistency.comp"),
     ("midpoint_warp", SHADER_DIR / "midpoint_warp.comp"),
+    ("snap_motion_v2_luma", SHADER_DIR / "motion_v2/snap_motion_v2_luma.comp"),
+    ("snap_motion_v2_downsample", SHADER_DIR / "motion_v2/snap_motion_v2_downsample.comp"),
+    ("snap_motion_v2_search", SHADER_DIR / "motion_v2/snap_motion_v2_search.comp"),
 ]
 
 
