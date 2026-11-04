@@ -1,0 +1,24 @@
+#version 450
+// SnapMotionV2 static-region mask. This identifies temporal pixel stability;
+// it does not classify pixels as HUD and must not replace motion estimation.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D uPreviousColor;
+layout(set = 0, binding = 1) uniform sampler2D uCurrentColor;
+layout(set = 0, binding = 4, r16f) writeonly uniform image2D uStaticMask;
+layout(push_constant) uniform Push {
+    vec4 dims;    // width, height, thresholdLow, thresholdHigh
+} pc;
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 extent = imageSize(uStaticMask);
+    if (any(greaterThanEqual(p, extent))) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(extent);
+    vec3 prev = texture(uPreviousColor, uv).rgb;
+    vec3 curr = texture(uCurrentColor, uv).rgb;
+    vec3 delta = abs(curr - prev);
+    float difference = max(delta.r, max(delta.g, delta.b));
+    float lo = max(pc.dims.z, 0.0);
+    float hi = max(pc.dims.w, lo + 0.0001);
+    float stable = 1.0 - smoothstep(lo, hi, difference);
+    imageStore(uStaticMask, p, vec4(stable, 0.0, 0.0, 1.0));
+}
