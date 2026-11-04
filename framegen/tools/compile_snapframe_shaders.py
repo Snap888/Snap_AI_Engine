@@ -27,6 +27,10 @@ SHADERS = [
     ("snap_motion_v2_search", SHADER_DIR / "motion_v2/snap_motion_v2_search.comp"),
     ("snap_motion_v2_refine", SHADER_DIR / "motion_v2/snap_motion_v2_refine.comp"),
     ("snap_motion_v2_validation", SHADER_DIR / "motion_v2/snap_motion_v2_validation.comp"),
+    ("snap_motion_v2_static_mask", SHADER_DIR / "motion_v2/snap_motion_v2_static_mask.comp"),
+    ("snap_motion_v2_interpolation", SHADER_DIR / "motion_v2/snap_motion_v2_interpolation.comp"),
+    ("snap_motion_v2_metrics_partial", SHADER_DIR / "motion_v2/snap_motion_v2_metrics_partial.comp"),
+    ("snap_motion_v2_metrics_final", SHADER_DIR / "motion_v2/snap_motion_v2_metrics_final.comp"),
 ]
 
 
