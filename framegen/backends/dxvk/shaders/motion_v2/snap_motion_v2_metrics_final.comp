@@ -43,7 +43,9 @@ void main() {
     }
     if (lane == 0u) {
         float validCount = max(sQuality[0].w, 0.0);
+        float expectedCount = max(float(pc.counts.y), 1.0);
         float count = max(validCount, 1.0);
+        bool metricsValid = validCount > 0.0 && validCount >= expectedCount * 0.90;
         vec4 m = sMotion[0] / count;
         vec4 q = sQuality[0] / count;
         float artifactRisk = clamp(0.50 * m.w + 0.30 * q.x
@@ -52,7 +54,7 @@ void main() {
         outResult.result.identity = pc.identity;
         outResult.result.extent = pc.extent;
         outResult.result.flags = uvec4(sceneCut ? 1u : 0u,
-                                       validCount > 0.0 ? 1u : 0u,
+                                       metricsValid ? 1u : 0u,
                                        uint(validCount), 0u);
         outResult.result.motion = vec4(m.x, m.y, m.z, m.w);
         outResult.result.quality = vec4(q.x, q.y, artifactRisk, q.z);
