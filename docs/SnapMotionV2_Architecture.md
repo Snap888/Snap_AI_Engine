@@ -1,6 +1,6 @@
 # SnapMotionV2 architecture — Stage 1
 
-Status: portable metadata/configuration core implemented; GPU algorithms and DXVK integration are not yet connected.
+Status: portable metadata/configuration core implemented; V2 Luma, pyramid search, refinement, validation, static-mask and interpolation shaders are source-level and CI compile-validated. DXVK resources/dispatch and runtime integration are not yet connected.
 
 ## Ownership boundaries
 
@@ -54,3 +54,18 @@ The archive's engine assumes RGBA8 composite input and a ring size at least mult
 3. Add DXVK-owned persistent resources and async scalar reduction; never read back full vectors for AI.
 4. Validate frame IDs, history resets, image layouts and two-frames-in-flight resource ownership.
 5. Keep V2 disabled and select V1 until device image-quality/performance tests pass.
+
+
+## Shader implementation progress — 2026-11-04
+
+The separate `framegen/backends/dxvk/shaders/motion_v2/` namespace now contains:
+- L0 luma and L0->L1 downsample;
+- coarse/fine block search with temporal/spatial seed support and explicit border rejection;
+- 3x3 median + subpixel refinement and local confidence;
+- independent forward/backward round-trip validation;
+- temporal static-region mask (not a semantic HUD classifier);
+- bidirectional time-parametric interpolation with confidence fallback, gamut clamp and optional real-frame detail recovery.
+
+All V2 shader sources are included in the shader compiler and validated as Vulkan 1.1 SPIR-V in CI run [#41810539818](https://github.com/Snap888/Snap_AI_Engine/actions/runs/41810539818). The portable core unit tests, SnapFrame build and standalone SnapFrame tests also passed in that run.
+
+This is shader compilation validation only. It does not prove descriptor compatibility with DXVK, image format support on Adreno, synchronization correctness, visual quality, performance, or Skyrim runtime behavior. No V2 shader is currently dispatched by the game.
