@@ -1,24 +1,24 @@
 # Snap AI Engine + SnapFrame
 
-**SnapFrame** is the frame-generation engine in this repository. **Snap AI Engine** is an optional adaptive policy controller that can tune SnapFrame decisions. Both have independently usable portable APIs; neither portable core requires DXVK.
+**SnapFrame** is the frame-generation engine in this repository. **Snap AI Engine** is its optional adaptive policy controller. Both expose portable APIs and do not require DXVK.
 
 ## Branch `SnapFrameBackendV1`
 
-This branch provides the portable C ABI, multiplier validation through ×4, imported SnapFrame compute shaders, and a host-owned Vulkan interop contract. The Vulkan contract is in `framegen/include/snap_frame/snap_frame_vulkan.h`.
+This branch provides the portable C ABI, multiplier validation through ×4, compute shaders and a host-owned Vulkan interop contract in `framegen/include/snap_frame/snap_frame_vulkan.h`.
 
-**Compatibility boundary:** the Skyrim adapter targets the custom dxvk-native 1.9.2b fork in `Snap888/Skyrim_Android` branch `frame_gen`. Winlator and WinNative have separate native integration points; the Vulkan ABI does not itself constitute a working host adapter.
+**Compatibility boundary:** the Skyrim adapter targets the custom dxvk-native 1.9.2b fork in `Snap888/Skyrim_Android` branch `frame_gen`. Winlator and WinNative have separate host adapters.
 
 ## Architecture
 
 ```text
 Game / compositor -> SnapFrame portable C ABI -> SnapFrameBackendV1
-                                             |-> DXVK Vulkan adapter (Skyrim fork)
-                                             |-> Winlator DXVK adapter (port pending)
-                                             |-> WinNative compositor adapter (port pending)
-Optional Snap AI consumes scalar telemetry and returns bounded policy settings.
+                                             |-> Skyrim DXVK adapter
+                                             |-> Winlator DXVK adapter (runtime port pending)
+                                             |-> WinNative Wayland Vulkan adapter (experimental)
+Optional Snap AI consumes bounded telemetry and returns adaptive policy settings.
 ```
 
-The core treats native handles as opaque tokens. A Vulkan adapter may use the separate Vulkan interop payload, while the host retains device, queue, command-buffer, swapchain and present-semaphore ownership. DXVK is one backend, not where the engine's policy or public API lives.
+The portable core treats native handles as opaque. Vulkan adapters borrow the host device, queue, command buffer, source image and output slots. The host retains queue submission, swapchain and present-semaphore ownership.
 
 ## Build and test
 
@@ -41,14 +41,14 @@ Requirements: CMake 3.16+ and a C++17 compiler. See [API](docs/FRAMEGEN_API.md),
 
 - [Skyrim_Android / DXVK](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1) — native CMake integration and DXVK adapter compile workflow.
 - [Winlator dev OSS](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1) — portable engine tests and Android arm64 library workflow; runtime adapter pending.
-- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1) — Vulkan interop contract documented; native compositor adapter and GPU pipeline remain pending.
+- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1) — experimental Wayland compositor Vulkan adapter, portable-core callback bridge, Snap AI GPU-timing policy and game/overlay settings. CI and physical Turnip validation are pending.
 
-Detailed guides: [Skyrim](docs/INTEGRATION_SKYRIM_DXVK.md), [Winlator](docs/INTEGRATION_WINLATOR.md), [WinNative](docs/INTEGRATION_WINNATIVE.md), [workflow status](docs/INTEGRATION_WORKFLOWS.md).
+Detailed guides: [Skyrim](docs/INTEGRATION_SKRYRIM_DXVK.md), [Winlator](docs/INTEGRATION_WINLATOR.md), [WinNative](docs/INTEGRATION_WINNATIVE.md), [workflow status](docs/INTEGRATION_WORKFLOWS.md).
 
 ## Portable multiplier contract
 
-The core accepts multiplier 1 (bypass) and 2..4 (up to three generated temporal phases). It validates that a backend never returns more than `multiplier - 1` frames. This does not mean every adapter implements ×3/×4; actual generation requires distinct GPU reconstruction phases and host-side presentation support.
+The core accepts multiplier 1 (bypass) and 2..4 (up to three generated temporal phases). It validates that a backend never returns more than `multiplier - 1` frames. A host must provide distinct chronological phases and enough output slots; the API does not fabricate missing frames.
 
 ## Validation limits
 
-Portable core CI covers Linux/Windows/Android arm64 builds. This repository's Vulkan interop header defines ownership and frame-resource rules, but no WinNative runtime adapter or physical-GPU validation is claimed.
+The WinNative branch now has a concrete runtime path, but this repository does not claim a successful physical Turnip run. Scene discontinuity resets are currently driven by explicit core events and a >500 ms frame gap; pixel-based scene-cut classification and measured optical-flow confidence/motion-complexity inputs remain future work. WinNative's contract tests validate phase timing, flow-grid bounds, resize/format/scene-cut/device-generation reset flags and absence of backend-owned WSI operations.
