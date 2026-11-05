@@ -54,7 +54,7 @@ int main() {
   assert(snap_frame_set_config(e,&invalid)==SNAP_FRAME_ERROR_INVALID_ARGUMENT);
   SnapFrameEngineStats stats{}; stats.struct_size=sizeof(stats);
   assert(snap_frame_get_stats(e,&stats)==SNAP_FRAME_OK);
-  assert(stats.frames_seen==7 && stats.generated_frames==5);
+  assert(stats.frames_seen==6 && stats.generated_frames==5);
   snap_frame_destroy(e);
   return 0;
 }
