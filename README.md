@@ -4,9 +4,9 @@
 
 ## Branch `SnapFrameBackendV1`
 
-This branch adds a concrete `SnapFrameBackendV1` bridge for the Skyrim Android DXVK fork, preserves the original GPU pipeline and shaders, and adds host CI branches/workflows for Skyrim, Winlator and WinNative.
+This branch provides the portable C ABI, multiplier validation through ×4, imported SnapFrame compute shaders, and a host-owned Vulkan interop contract. The Vulkan contract is in `framegen/include/snap_frame/snap_frame_vulkan.h`.
 
-**Compatibility boundary:** the Skyrim adapter targets the custom dxvk-native 1.9.2b fork in `Snap888/Skyrim_Android` branch `frame_gen`. Winlator and WinNative have separate native integration points and currently receive portable SnapFrame CI only; their runtime adapters are not implemented yet. See [DXVK adapter status](docs/DXVK_ADAPTER_STATUS.md) and [integration matrix](docs/INTEGRATION_MATRIX.md).
+**Compatibility boundary:** the Skyrim adapter targets the custom dxvk-native 1.9.2b fork in `Snap888/Skyrim_Android` branch `frame_gen`. Winlator and WinNative have separate native integration points; the Vulkan ABI does not itself constitute a working host adapter.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Game / compositor -> SnapFrame portable C ABI -> SnapFrameBackendV1
 Optional Snap AI consumes scalar telemetry and returns bounded policy settings.
 ```
 
-The core treats native handles as opaque tokens. A backend owns graphics objects, command recording, synchronization and generated-frame insertion. DXVK is one backend, not where the engine's policy or public API lives.
+The core treats native handles as opaque tokens. A Vulkan adapter may use the separate Vulkan interop payload, while the host retains device, queue, command-buffer, swapchain and present-semaphore ownership. DXVK is one backend, not where the engine's policy or public API lives.
 
 ## Build and test
 
@@ -41,7 +41,7 @@ Requirements: CMake 3.16+ and a C++17 compiler. See [API](docs/FRAMEGEN_API.md),
 
 - [Skyrim_Android / DXVK](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1) — native CMake integration and DXVK adapter compile workflow.
 - [Winlator dev OSS](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1) — portable engine tests and Android arm64 library workflow; runtime adapter pending.
-- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1) — portable API contract and integration plan; native compositor adapter remains pending.
+- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1) — Vulkan interop contract documented; native compositor adapter and GPU pipeline remain pending.
 
 Detailed guides: [Skyrim](docs/INTEGRATION_SKYRIM_DXVK.md), [Winlator](docs/INTEGRATION_WINLATOR.md), [WinNative](docs/INTEGRATION_WINNATIVE.md), [workflow status](docs/INTEGRATION_WORKFLOWS.md).
 
@@ -49,10 +49,6 @@ Detailed guides: [Skyrim](docs/INTEGRATION_SKYRIM_DXVK.md), [Winlator](docs/INTE
 
 The core accepts multiplier 1 (bypass) and 2..4 (up to three generated temporal phases). It validates that a backend never returns more than `multiplier - 1` frames. This does not mean every adapter implements ×3/×4; actual generation requires distinct GPU reconstruction phases and host-side presentation support.
 
-## Preserved source and provenance
-
-Original SnapFrame host sources and four GLSL compute shaders were imported from `Snap888/Skyrim_Android`, branch `frame_gen`, source commit `c385a66daef920f83a86e7eaf16ff822e507e3c7`. The original GPU host is retained under `framegen/backends/dxvk/legacy`; design notes and test reports are under `docs/legacy/`. DXVK keeps its own license; see [NOTICE](docs/NOTICE.md).
-
 ## Validation limits
 
-Portable core tests and Linux/Windows/Android arm64 builds pass in CI. The Skyrim DXVK adapter compile workflow is configured separately against the exact fork; no physical GPU or APK/device validation is claimed yet. Winlator and WinNative currently build the portable SnapFrame library only, not a working runtime frame-generation adapter.
+Portable core CI covers Linux/Windows/Android arm64 builds. This repository's Vulkan interop header defines ownership and frame-resource rules, but no WinNative runtime adapter or physical-GPU validation is claimed.
