@@ -1,6 +1,7 @@
 # SnapFrame C API
 
-Header: `framegen/include/snap_frame/snap_frame.h`.
+Portable header: `framegen/include/snap_frame/snap_frame.h`.
+Vulkan host interop: `framegen/include/snap_frame/snap_frame_vulkan.h`.
 
 ## Create
 
@@ -8,7 +9,15 @@ Call `snap_frame_default_config`, fill `SnapFrameBackendV1` with version, struct
 
 ## Frame processing
 
-Call `snap_frame_process` once per real frame with monotonically increasing `frame_id`, timestamp, dimensions, format and opaque `native_frame` token. The token is never dereferenced by the core.
+Call `snap_frame_process` once per real frame with monotonically increasing `frame_id`, timestamp, dimensions, format and opaque `native_frame` token. The portable core never dereferences that token.
+
+A Vulkan backend may interpret `native_frame` as a pointer to `SnapFrameVulkanFrame`, after validating the complete struct size and interop version. This payload contains borrowed compositor-owned Vulkan handles, a host-recording command buffer, source image and preallocated generated-frame slots. The backend records work only; the host remains responsible for submission and presentation.
+
+## Vulkan ownership
+
+The backend must not create a second device or queue, submit the host command buffer, wait for completion, perform readback, or destroy host-owned resources. It must preserve the source layout and transition each generated output to its declared final layout. Version 1 requires all resources to be accessible on the supplied queue family; ownership transfers are not part of this ABI.
+
+## Status
 
 - `SNAP_FRAME_OK`: backend accepted the frame and returned output data.
 - `SNAP_FRAME_BYPASSED`: engine is disabled or multiplier is 1.
@@ -28,4 +37,4 @@ This is a portable API contract, not a promise that every backend implements all
 
 ## ABI compatibility
 
-Public structs include `struct_size` and API version fields where applicable. Version 1 requires the complete v1 struct size. Future minor API versions must introduce size-negotiated compatibility before extending structs.
+Public structs include `struct_size` and API version fields where applicable. The Vulkan interop payload has its own `SNAP_FRAME_VULKAN_INTEROP_VERSION`; it is independent from the portable core ABI.
