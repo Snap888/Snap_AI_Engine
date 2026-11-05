@@ -20,7 +20,7 @@ namespace {
 bool validConfig(const SnapFrameEngineConfig* c) {
   return c && c->struct_size >= sizeof(SnapFrameEngineConfig)
     && c->api_version == SNAP_FRAME_API_VERSION
-    && c->multiplier >= 1 && c->multiplier <= 2
+    && c->multiplier >= 1 && c->multiplier <= SNAP_FRAME_MAX_MULTIPLIER
     && c->quality >= SNAP_FRAME_QUALITY_PERFORMANCE
     && c->quality <= SNAP_FRAME_QUALITY_QUALITY
     && c->flow_scale_percent >= 25 && c->flow_scale_percent <= 100
