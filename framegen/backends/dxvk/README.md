@@ -2,12 +2,14 @@
 
 This directory holds the first host-specific SnapFrame integration.
 
-- `shaders/`: the four SnapFrame compute shaders imported from Skyrim_Android.
+- `shaders/`: SnapFrame compute kernels.
 - `legacy/`: the original DXVK-bound implementation, including the capture/present hook host and bootstrap.
 
 ## Current status
 
-The legacy implementation is preserved and build-isolated. It still calls Skyrim-fork-specific DXVK hooks and uses DXVK internal C++ classes. It does **not** yet implement `SnapFrameBackendV1` as a concrete backend object. The portable `SnapFrame::Engine` can already be built without this directory.
+The legacy implementation is preserved and build-isolated. It still calls Skyrim-fork-specific DXVK hooks and uses DXVK internal C++ classes. It does **not** yet implement `SnapFrameBackendV1` as a concrete backend object. The portable `SnapFrame::Engine` can be built without this directory.
+
+The shared Vulkan host payload is defined in `framegen/include/snap_frame/snap_frame_vulkan.h`. It is intentionally independent of DXVK: each host supplies its own device, command buffer, source image and output slots while retaining queue submission and WSI ownership.
 
 Do not enable `SNAP_FRAME_BUILD_DXVK_LEGACY` in a standalone build. A parent project must first build the matching DXVK fork and expose the `dxvk_d3d9` target, then set `SNAP_FRAME_DXVK_SOURCE_DIR`.
 
