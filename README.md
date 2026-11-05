@@ -41,9 +41,13 @@ Requirements: CMake 3.16+ and a C++17 compiler. See [API](docs/FRAMEGEN_API.md),
 
 - [Skyrim_Android / DXVK](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1) — native CMake integration and DXVK adapter compile workflow.
 - [Winlator dev OSS](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1) — portable engine tests and Android arm64 library workflow; runtime adapter pending.
-- [WinNative](https://github.com/Snap888/WinNative/tree/snapframe-backend-v1) — portable engine tests and Android arm64 library workflow; compositor adapter pending.
+- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1) — portable API contract and integration plan; native compositor adapter remains pending.
 
 Detailed guides: [Skyrim](docs/INTEGRATION_SKYRIM_DXVK.md), [Winlator](docs/INTEGRATION_WINLATOR.md), [WinNative](docs/INTEGRATION_WINNATIVE.md), [workflow status](docs/INTEGRATION_WORKFLOWS.md).
+
+## Portable multiplier contract
+
+The core accepts multiplier 1 (bypass) and 2..4 (up to three generated temporal phases). It validates that a backend never returns more than `multiplier - 1` frames. This does not mean every adapter implements ×3/×4; actual generation requires distinct GPU reconstruction phases and host-side presentation support.
 
 ## Preserved source and provenance
 
