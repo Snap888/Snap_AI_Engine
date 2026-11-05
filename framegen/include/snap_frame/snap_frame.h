@@ -18,6 +18,7 @@ extern "C" {
 #endif
 
 #define SNAP_FRAME_API_VERSION 1u
+#define SNAP_FRAME_MAX_MULTIPLIER 4u
 typedef struct SnapFrameEngine SnapFrameEngine;
 
 typedef enum SnapFrameStatus {
@@ -40,7 +41,7 @@ typedef struct SnapFrameEngineConfig {
   uint32_t struct_size;
   uint32_t api_version;
   uint32_t enabled;
-  uint32_t multiplier;          /* v1 supports 1 (bypass) and 2 (one midpoint). */
+  uint32_t multiplier;          /* v1: 1 (bypass) or 2..4 (up to 3 temporal phases). */
   SnapFrameEngineQuality quality;
   uint32_t flow_scale_percent;  /* 25..100 */
   uint32_t motion_analysis;
@@ -96,7 +97,8 @@ typedef struct SnapFrameBackendV1 {
   SnapFrameStatus (*update_config)(void* user_data, const SnapFrameEngineConfig* config);
   void (*reset_history)(void* user_data, uint32_t reason);
   /* Records/submits backend work using host-owned resources and synchronization.
-   * Must not wait for GPU completion or perform CPU readback in the frame path. */
+   * Must not wait for GPU completion or perform CPU readback in the frame path.
+   * For multiplier M, emit at most M-1 frames in chronological temporal-phase order. */
   SnapFrameStatus (*process_frame)(void* user_data,
       const SnapFrameFrameInput* input, SnapFrameFrameOutput* output);
 } SnapFrameBackendV1;
