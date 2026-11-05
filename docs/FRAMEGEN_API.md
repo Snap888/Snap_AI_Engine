@@ -16,6 +16,12 @@ Call `snap_frame_process` once per real frame with monotonically increasing `fra
 
 A concurrent call returns BUSY instead of blocking. Hosts should call on their serialized render/present path.
 
+## Multipliers and temporal phases
+
+API v1 accepts `multiplier=1..4`. Multiplier 1 bypasses processing. For multiplier M=2, 3 or 4, a backend may return up to M-1 generated frames between the previous and current source frame. The backend must produce distinct temporal phases in chronological order; repeating a midpoint is not valid ×3/×4 interpolation. The core rejects output counts greater than the configured phase budget.
+
+This is a portable API contract, not a promise that every backend implements all multipliers. Each backend must enforce its own capability limits and may return fewer frames or bypass safely.
+
 ## Hot settings
 
 `snap_frame_set_enabled` and `snap_frame_set_quality` update configuration without recreating the engine. GPU-affecting changes require backend `update_config`; without it, those changes fail explicitly. Successful enable-state changes reset temporal history.
