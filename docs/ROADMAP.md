@@ -22,13 +22,25 @@ This milestone is a passive recorder only. It does not hook a graphics API, calc
 - Add diagnostic overlay fields after the event boundary is validated.
 - Keep present mode, queue depth and existing single SnapFrame pipeline unchanged.
 
-## v0.3 — Better motion telemetry
+## v0.3 — Flow reuse and quality diagnostics (priority)
 
-Forward/backward consistency, occlusion and scene-cut signals, per-region complexity aggregation, confidence calibration from real logs. Replace neutral host priors only when trustworthy measurements are available.
+- Split flow estimation from phase synthesis: solve forward/backward flow once per real source pair and reuse it for all generated temporal phases.
+- Add dispatch counters proving flow work is independent of multiplier; invalidate history on scene cut, frame gap, resize, format/device/swapchain generation change.
+- Add opt-in flow HSV, confidence, forward/backward error, occlusion, warp-candidate, blend-weight and residual views in the existing host UI/output path.
+- Add GPU-side reductions for motion magnitude/complexity, confidence, occlusion ratio, photometric residual and search-boundary saturation.
+- Add global-motion pre-warp and edge-preserving flow regularization as independently switchable experiments, with per-stage GPU timestamps and A/B quality reports.
 
-## v0.4 — Optional tiny model
+See [Win-FG technical audit](WIN_FG_TECHNICAL_AUDIT.md) and [flow diagnostics/data contract](FLOW_DIAGNOSTICS_AND_DATASET.md). These are planned until implemented and device-validated in the active host backend.
 
-Dataset and feature schema, offline training/evaluation, quantized model, optional runtime adapter, inference budget and fallback tests.
+## v0.4 — Calibration and optional tiny model
+
+- Opt-in lossless capture of real source frames and true high-rate midpoint targets, with manifest, hashes and explicit consent.
+- Offline confidence calibration against held-out ground-truth scenes.
+- Dataset splits by game/scene/session to avoid adjacent-frame leakage.
+- Evaluate a small optional residual corrector only after classical baseline measurements; keep classical flow/warp/synthesis as default and fallback.
+- Quantized model, measured inference budget and heuristic fallback tests if a model demonstrates net benefit on target Adreno hardware.
+
+Do not use generated SnapFrame outputs as ground truth. Do not block the render thread on readback, compression or file I/O. Do not silently upload captured gameplay.
 
 ## v1.0 — Cross-host release
 
