@@ -6,7 +6,9 @@ A flow viewer is a debugging/calibration tool, not a second frame-generation pat
 
 ## Diagnostic views
 
-Implement as opt-in modes in the active Vulkan backend or host overlay. They must use the existing host's output/presentation path and must not alter normal frame scheduling.
+**Current WinNative X11 status:** the active Vulkan backend already has `flow_debug.comp`, a debug pipeline and `snap_frame_vk_debug_into()`. The renderer calls it when `snap_debug_flow` is enabled and presents the result as a full-frame HSV flow + consistency view. This is already a useful first flow viewer; it is not a separate overlay and it is not wired into Snap AI. The inspected Wayland adapter does not currently expose this debug mode. Preserve this working path rather than creating a second viewer/presenter.
+
+The next increment is to add selectable confidence, occlusion, forward/backward error, warp-candidate and blend-weight views, then GPU-side scalar reductions for Snap AI. Implement as opt-in modes in the active Vulkan backend or host overlay. They must use the existing host's output/presentation path and must not alter normal frame scheduling.
 
 | View | Contents | Diagnoses |
 |---|---|---|
@@ -23,7 +25,7 @@ Provide a selectable phase for 3x/4x output and a freeze-frame/step mode in the 
 
 ## Snap AI feature contract
 
-The policy controller currently accepts normalized scalar metrics through `SnapAIFrameMetrics`. Populate those fields from real GPU reductions/timestamps:
+The policy controller currently accepts normalized scalar metrics through `SnapAIFrameMetrics`. In the inspected WinNative Vulkan backend, GPU time is measured but motion magnitude, motion complexity, flow confidence and artifact risk are still assigned fixed placeholder values. The first AI integration task is to replace those priors with real reductions from the already-computed flow and consistency images. Populate those fields from real GPU reductions/timestamps:
 
 | AI feature | Source | Use |
 |---|---|---|
