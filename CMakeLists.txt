@@ -5,7 +5,7 @@ option(BUILD_SHARED_LIBS "Build shared library by default" ON)
 option(SNAP_AI_BUILD_TESTS "Build dependency-free unit tests" ON)
 option(SNAP_AI_BUILD_EXAMPLE "Build minimal host example" ON)
 
-add_library(snap_ai_engine src/snap_ai.cpp)
+add_library(snap_ai_engine src/snap_ai.cpp src/frame_telemetry.cpp)
 add_library(SnapAI::Engine ALIAS snap_ai_engine)
 target_include_directories(snap_ai_engine PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -26,6 +26,10 @@ if(SNAP_AI_BUILD_TESTS)
   add_executable(snap_ai_tests tests/test_snap_ai.cpp)
   target_link_libraries(snap_ai_tests PRIVATE SnapAI::Engine)
   add_test(NAME snap_ai_tests COMMAND snap_ai_tests)
+
+  add_executable(snap_ai_frame_telemetry_tests tests/test_frame_telemetry.cpp)
+  target_link_libraries(snap_ai_frame_telemetry_tests PRIVATE SnapAI::Engine)
+  add_test(NAME snap_ai_frame_telemetry_tests COMMAND snap_ai_frame_telemetry_tests)
 endif()
 
 if(SNAP_AI_BUILD_EXAMPLE)
