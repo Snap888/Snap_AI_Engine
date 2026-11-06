@@ -1,30 +1,43 @@
 # Host integration workflows
 
-Three downstream branches now carry CI workflows:
+The host repositories own their Android Gradle/CMake projects, SDK pins, driver/runtime revisions and native presentation code. Portable-engine CI and host-runtime CI are separate validation layers.
 
-- [Skyrim_Android `snapframe-backend-v1`](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1/.github/workflows): configures and compiles `snap_frame_dxvk_legacy` against the exact Skyrim DXVK source. A separate manual job can build the full APK when generated `gen/` sources or a `gen_url` archive are supplied.
-- [Winlator dev OSS `snapframe-backend-v1`](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1/.github/workflows): runs portable SnapFrame core tests and cross-compiles the Android arm64 library. It does not yet validate a Winlator DXVK hook adapter.
-- [WinNative `snapframe-backend-v1`](https://github.com/Snap888/WinNative/tree/snapframe-backend-v1/.github/workflows): runs portable SnapFrame core tests and cross-compiles the Android arm64 library. It does not yet validate a compositor adapter.
+## Current host workflows
 
-The workflow templates are also kept in `integrations/workflows/`. Host application workflows must run in the host repositories because only those repositories own their Gradle/CMake projects, SDK pins, signing configuration and DXVK/compositor revisions.
+- [Skyrim_Android](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1): host-specific DXVK adapter compile workflow. A full APK build may additionally require generated `gen/` sources or a supplied `gen_url` archive.
+- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1): contains two SnapFrame host paths: direct X11 `VulkanRenderer` integration and a separate Wayland compositor adapter. Its own CI is responsible for APK flavor builds and native contract/WSI tests. Physical Turnip validation is still a manual/device stage.
+- [Winlator dev OSS](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1): portable SnapFrame tests and Android arm64 library cross-compile only. A Winlator DXVK/runtime adapter is not yet present.
+
+Workflow templates under `integrations/workflows/` are examples; host application workflows must run in the host repositories.
 
 ## Next integration steps
 
 ### Skyrim_Android
 
-Fix any compile errors in the DXVK adapter workflow, then run the full APK workflow with generated `gen/` sources. Test the adapter on Adreno and Mali devices, including rapid toggles, resize, scene cuts, device recreation, LSFG mutual exclusion, GPU timings, present results and audio stability.
-
-### Winlator
-
-Select the exact Winlator fork and DXVK revision used by the runtime. Port the DXVK copy/generation/present hooks to that fork and build the adapter against its private headers. A passing portable-library job is not proof of this integration.
+Resolve any host DXVK adapter compile errors, build the full APK with generated sources, then test on Adreno and Mali. Validate rapid toggles, resize, scene cuts, device recreation, LSFG mutual exclusion, GPU timings, present results and audio stability.
 
 ### WinNative
 
-Implement a compositor backend around the existing Wayland `vkp_framegen_run` / `fge_process` lifecycle and the compositor's own Vulkan device/queue. Preserve existing LSFG/DIS selection and pacing; do not reuse the Skyrim DXVK adapter directly.
+1. Keep X11 and Wayland adapters separate while sharing the portable engine and Vulkan compute implementation where practical.
+2. Verify the X11 output-format gate and Vulkan format capability checks against the formats actually used by the shaders.
+3. Test X11 Debug Flow and confirm both the GPU stage timing line and increasing generated-frame counter.
+4. Verify per-game settings persistence and native state propagation.
+5. Run physical Turnip/Adreno tests for X11 and Wayland independently, including resize, device loss, enable/disable and sustained FIFO pacing.
+6. Replace neutral Snap AI motion/confidence/artifact priors with measured GPU reductions before claiming content-aware adaptation.
 
-## CI security
+### Winlator
+
+1. Select and pin the exact Winlator fork and DXVK revision used by the target APK.
+2. Port the host hooks and adapter to that fork's private interfaces; do not copy Skyrim's Android launcher/runtime.
+3. Preserve host Vulkan/WSI ownership and generated-frame pacing.
+4. Add runtime controls, per-game config, Debug Flow and source/generated frame counters.
+5. Add fork-specific build CI and physical Adreno/Mali validation.
+
+## CI security and validation
 
 - Pin third-party actions to reviewed major versions or immutable SHAs according to host policy.
 - Do not store game files, APK signing keys or personal device logs in public artifacts.
 - Upload only build outputs and sanitized test logs.
 - Keep hardware/device validation as a separate self-hosted or manual test stage.
+
+Do not mark an integration hardware-validated based only on portable tests, cross-compilation or APK compilation.
