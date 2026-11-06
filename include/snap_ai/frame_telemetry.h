@@ -1,6 +1,7 @@
 #ifndef SNAP_AI_FRAME_TELEMETRY_H
 #define SNAP_AI_FRAME_TELEMETRY_H
 
+#include "snap_ai/snap_ai.h"
 #include <cstdint>
 #include <memory>
 
@@ -41,10 +42,7 @@ struct Snapshot {
   double output_interval_p99_ms = 0.0;
 };
 
-// Host supplies monotonic timestamps. No clock, graphics API, allocation, or
-// blocking GPU operation is performed by record(). Duplicate Present/Present1
-// callbacks must carry the same logical_present_id.
-class Recorder {
+class SNAP_AI_API Recorder {
 public:
   explicit Recorder(uint32_t capacity = 256);
   ~Recorder();
