@@ -2,45 +2,59 @@
 
 Target branch: [`Snap888/WinNative:Snap888-patch-1`](https://github.com/Snap888/WinNative/tree/Snap888-patch-1).
 
-WinNative now contains an experimental Wayland compositor adapter using the SnapFrame portable C API and a native Vulkan backend. This is a separate host adapter from Skyrim's DXVK integration.
+**Reference revision checked:** `43fdd2f6a3cb214e52bc41134d7e8b9a36f8504e`.
 
-## Runtime path
+WinNative has two distinct host paths for SnapFrame. The embedded X11 Vulkan renderer has a direct SnapFrame Vulkan backend integration. The embedded Wayland compositor has a separate adapter using the portable `SnapFrameBackendV1` C API. Do not describe this as a single shared presenter or reuse the Skyrim DXVK adapter.
 
-- `app/src/main/cpp/thirdparty/snapframe`: vendored portable SnapFrame C ABI and Vulkan host interop header.
+## Embedded X11 path — integrated, device validation pending
+
+The X11 path is implemented in `app/src/main/cpp/winlator/vk/vk_renderer.c`:
+
+- `create_snap()` creates `SnapFrameVk` with the renderer's existing `VkDevice` and `VkPhysicalDevice`.
+- Frame processing is recorded into the renderer's existing frame command buffer.
+- The renderer owns swapchain acquisition, composite targets, frame scheduling, submission and presentation. SnapFrame does not create a second device/queue or take ownership of WSI semaphores.
+- The renderer plans up to `multiplier - 1` generated frames (maximum three), calls `snap_frame_vk_process()`, then records each temporal phase with `snap_frame_vk_generate()` into renderer-owned composite targets.
+- Generated images are copied through the existing X11 swapchain path.
+- `nativeSetSnapFrameGenerationEnabled` and `nativeSetSnapFrameDebugFlow` expose runtime controls.
+- The in-game X11 frame-generation pane exposes SnapFrame, multiplier, Flow Scale and Debug Flow controls.
+
+Current X11 limitation: `vk_renderer.c` explicitly gates SnapFrame to `VK_FORMAT_R8G8B8A8_UNORM` swapchains. Do not claim general HDR/RGBA16F swapchain support for this host path. The backend's internal RGBA16F flow images do not remove that output-format restriction.
+
+## X11 Debug Flow and runtime diagnostics
+
+The SnapFrame Debug Flow toggle renders the backend's own forward motion field and consistency/occlusion mask into the composite output when generated frames are being produced. It is a live visualization, not a synthetic sample image. The renderer logs:
+
+- `SnapFrame GPU ms`: luma, pyramid, flow, consistency, warp and total GPU timings.
+- `framegen delivered`: real/generated frame counters, planned versus delivered frames, acquire misses, timeout, swapchain image count, capacity, draw time and frame gap.
+
+Debug Flow is useful to confirm that the X11 path is executing the SnapFrame flow pipeline. Also verify that `generated` increases; selecting the engine alone is not proof that frames are being delivered.
+
+## Embedded Wayland path — separate adapter
+
+The Wayland compositor path uses:
+
+- `app/src/main/cpp/thirdparty/snapframe`: portable SnapFrame C API and Vulkan interop ABI.
 - `app/src/main/cpp/snapai`: vendored Snap AI policy controller.
-- `app/src/main/cpp/snapframe/src/snap_frame_vk.c`: Vulkan compute implementation and timestamp-query telemetry.
-- `app/src/main/cpp/waylandcomp/src/framegen_engine.c`: creates `SnapFrameEngine`, registers `SnapFrameBackendV1` callbacks and constructs the per-frame Vulkan payload.
-- `framegen_bridge.c`: provides the ring output slots and routes accepted generated frames into the existing FIFO present path.
-- `vk_present.c` and `effects_chain.c`: provide sampled views for scene and post-effect source images. The compositor retains all queue submission and present semaphore ownership.
+- `app/src/main/cpp/snapframe/src/snap_frame_vk.c`: Vulkan compute backend.
+- `app/src/main/cpp/waylandcomp/src/framegen_engine.c`: `SnapFrameBackendV1` callback adapter.
+- `framegen_bridge.c`, `vk_present.c` and `effects_chain.c`: output ring and compositor FIFO present integration.
 
-## GPU pipeline
+The compositor borrows its existing Vulkan device, command buffer and output slots. It retains queue submission, WSI semaphore ownership and presentation.
 
-1. Downsample luma to half, quarter and eighth resolution.
-2. Estimate forward and backward flow.
-3. Run flow consistency and produce an occlusion mask.
-4. Reconstruct distinct temporal phases at `1/(M+1)`, `2/(M+1)`, ... for multiplier M.
-5. Write only to compositor-owned ring slots; the existing FIFO loop submits and presents them.
+## Snap AI behavior and current limitation
 
-Flow Scale changes adjust the active flow grid through push constants; the maximum flow images remain allocated, avoiding per-frame resource recreation.
+The WinNative vendored `snap_ai.cpp` is byte-for-byte identical to `Snap_AI_Engine/src/snap_ai.cpp` at the revisions checked. The X11/Wayland Vulkan backend creates the AI controller and feeds it GPU timestamp telemetry.
 
-## Snap AI
+The current WinNative Vulkan backend still supplies neutral fixed priors for motion magnitude, motion complexity, flow confidence and artifact risk (rather than GPU-reduced measurements). Consequently, adaptive behavior is presently driven primarily by measured GPU pressure and the policy's bounded/hysteresis rules. The AI decision fields for search radius, refinement passes, flow reuse and artifact checks are not all wired to distinct Vulkan shader controls yet. Do not describe this as content-aware optical-flow adaptation.
 
-Vulkan timestamp queries measure five stage groups: luma, pyramid, flow, consistency and warp. Completed query slots are collected non-blockingly several frames later. Snap AI uses the measured total GPU time against a 5 ms budget and returns a bounded adaptive ratio; the ratio is multiplied by the user's Flow Scale baseline, so AI can reduce work under pressure but cannot silently exceed the selected baseline.
+## WinNative build and runtime validation
 
-The current AI metrics use neutral motion/confidence priors. A GPU reduction for measured flow confidence, motion complexity and artifact risk remains future work.
+The WinNative repository owns the Android Gradle/CMake build. Its CI should be used for the APK flavor matrix and native contract/WSI tests. A passing portable Snap_AI_Engine build is not a substitute for that host build.
 
-## Ownership and pacing
+Physical Turnip/Adreno validation remains required for both X11 and Wayland paths. For X11, record the device/driver, output format, multiplier, source FPS, real/generated counters, stage timings, Debug Flow output, resize behavior and sustained pacing. Confirm no black/stale frames, correct chronological phase order, clean enable/disable and device-loss recovery before declaring runtime support validated.
 
-The adapter borrows the compositor's device, queue, command buffer, source view and output slots. It never creates a second device/queue, submits the command buffer, waits for GPU completion, performs CPU readback, owns semaphores or calls present. The compositor's per-frame fence boundary makes resize-time resource replacement safe. Generated frames are passed to the existing FIFO loop.
-
-## Settings
-
-- Per-game Game Settings: choose LSFG or SnapFrame, enable generation, select multiplier and set the Flow Scale baseline.
-- In-game overlay: select OFF/LSFG/DIS/SnapFrame, choose multiplier and adjust Flow Scale.
-- SnapFrame appears as available only after the Wayland compositor reports the required storage/sample formats and timestamp-query support on the current Vulkan device.
-
-## Validation and remaining work
-
-The WinNative branch includes standalone contract tests for phase fractions, Flow Scale grid bounds, RGBA8/RGBA16F, resize, format change, scene-cut reset, arm toggle and device-generation change. A static test rejects backend-owned queue submissions, present calls, semaphore creation and GPU waits.
-
-The branch CI runs the APK flavor matrix and these tests. A physical Turnip run is still required. Current scene-cut reset is event/frame-gap based (>500 ms), not image-content detection. The next improvement is GPU-derived flow-confidence/motion-complexity telemetry and a real-device stress run for pacing, black/stale frames and ×2/×3/×4 ordering.
+Known limitations to track:
+- X11 SnapFrame output currently requires RGBA8 UNORM.
+- Scene-cut reset in the Vulkan backend is frame-gap/event based; pixel-content scene-cut detection is not implemented.
+- AI motion/confidence/artifact inputs are neutral priors, not measured flow reductions.
+- Physical device validation is not implied by CI or static ownership tests.
