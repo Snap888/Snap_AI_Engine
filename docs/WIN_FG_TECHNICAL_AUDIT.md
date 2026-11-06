@@ -48,11 +48,20 @@ SnapFrame's current ownership contract is the correct boundary:
 
 The existing `SnapFrameVulkanFrame` is a borrowed per-callback payload. A backend may retain its own GPU resources only under an explicit device/swapchain-generation lifetime contract; it must not retain borrowed command buffers or host handles after the callback.
 
-## Important current limitation
+## Verified status in the active WinNative backend
 
-The portable repository contains the API/core and a preserved DXVK legacy implementation. That legacy implementation is explicitly not the new standalone `SnapFrameBackendV1` adapter. The active WinNative Vulkan compute implementation is host-owned in the WinNative repository, not in this repository. Therefore this audit does **not** claim that C1/C2, a vector viewer, flow reuse, or a trained model have been implemented in the active Android/WinNative runtime.
+A follow-up inspection of `Snap888/WinNative` branch `Snap888-patch-1` at `f200bbcd43e7cdf02513f9e9820d1eb7ef541381` found that two major pieces are **already present**:
 
-Implementing those shaders only as detached files here would create an unintegrated second pipeline. The next code change must be made in the active Vulkan backend and its host adapter, then reflected back into the portable contract only where a host-neutral API is genuinely needed.
+- **Flow/synthesis split is already implemented in the X11 Vulkan backend.** `snap_frame_vk_process()` builds luma/pyramids, dispatches forward and backward flow once, then computes consistency once. Each call to `snap_frame_vk_generate()` reuses those fields and performs phase-specific warp/composite. The Wayland `framegen_engine.c` adapter also calls the same process callback once and invokes generation per output slot. Do not add a duplicate flow cache or second estimator on top of this.
+- **A flow debug view is already implemented for X11.** `flow_debug.comp`, the debug pipeline and `snap_frame_vk_debug_into()` render the forward field plus consistency mask as a full-frame HSV diagnostic image. `vk_renderer.c` selects it when `r->snap_debug_flow` is enabled and exposes the JNI setter `nativeSetSnapDebugFlow`. This is a selectable diagnostic output, not yet a multi-panel viewer. The inspected Wayland adapter does not expose the same debug toggle.
+
+The main missing quality link is **AI telemetry**: the active Vulkan backend currently feeds fixed placeholder values for motion magnitude, motion complexity, flow confidence and artifact risk into `snap_ai_update()`. GPU time is measured, but the content features are not derived from the actual flow/mask. Therefore the current AI policy is largely a GPU-pressure governor, not a content-aware controller.
+
+## Important repository boundary
+
+The portable `Snap_AI_Engine` repository contains the API/core and a preserved DXVK legacy implementation. That legacy implementation is explicitly not the new standalone `SnapFrameBackendV1` adapter. The active Vulkan compute implementation is host-owned in WinNative, not in this repository. New GPU work must be integrated there and documented here; detached shader files in the portable repository would not affect the running APK.
+
+Do not implement a second flow estimator or second viewer. The next runtime change should be GPU-side reductions of the existing forward/backward flow and consistency mask, then pass validated scalar metrics into Snap AI. Extend the current X11 debug mode with additional selectable views only where they materially help diagnose those metrics, and expose the same facility to Wayland only if its host UI can present it safely.
 
 ## AI: use measured features, not pixels in the policy loop
 
