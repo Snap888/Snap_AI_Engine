@@ -4,7 +4,7 @@
 
 A backend implements `SnapFrameBackendV1` and records preprocessing, motion estimation, consistency and reconstruction passes, image barriers and temporal history. The portable core never interprets graphics handles.
 
-The Vulkan host payload is `framegen/include/snap_frame/snap_frame_vulkan.h`. A Vulkan backend receives a `SnapFrameVulkanFrame` through `SnapFrameFrameInput.native_frame`. It borrows the host's physical device, device, queue, command buffer, source image/view and output slots for the callback duration.
+The Vulkan host payload is `framegen/include/snap_frame/snap_frame_vulkan.h`. A Vulkan backend receives a `SnapFrameVulkanFrame` through `SnapFrameFrameInput.native_frame`. It borrows the compositor's physical device, device, queue, command buffer, source image/view and output slots for the callback duration.
 
 ## Vulkan ownership rules
 
@@ -25,41 +25,50 @@ The core remains Vulkan-header-free; only a Vulkan adapter includes the interop 
 - `reset_history`: clear temporal state after enable changes, scene discontinuity, resize or device recreation.
 - `process_frame`: record bounded work; never block for GPU completion, perform CPU readback or allocate unbounded per-frame memory.
 - `shutdown`: release backend-owned resources before device destruction.
-- For multiplier `M`, emit no more than `M-1` distinct generated phases in chronological order. The host presents them in that order.
+- For multiplier `M`, emit no more than `M-1` distinct generated phases in chronological order. The core validates the count; the host presents them in that order.
 
 ## Temporal multiplier support
 
 The portable API accepts multiplier 1 (bypass) and 2..4 (up to three generated phases). This is a scheduling/API capability, not a claim that every backend implements all multipliers. A backend must enforce its own capability limits.
 
-## WinNative integration status
+## WinNative host adapters
 
-WinNative branch `Snap888-patch-1` contains two host integrations over its Vulkan compute backend:
+WinNative branch `Snap888-patch-1` contains two distinct integrations:
 
-- **Embedded X11:** `app/src/main/cpp/winlator/vk/vk_renderer.c` calls the WinNative `SnapFrameVk` backend directly from its serialized renderer command buffer and routes generated output through its own swapchain/present loop. The X11 path does not currently route each frame through the portable `SnapFrameBackendV1` callback layer.
-- **Wayland:** `app/src/main/cpp/waylandcomp/src/framegen_engine.c` creates a portable-core engine and adapts the compositor's borrowed Vulkan handles into `SnapFrameVulkanFrame`.
+### Embedded X11 `VulkanRenderer`
 
-Both paths use the renderer/compositor-owned Vulkan device and presentation synchronization. They are separate host adapters; neither creates a second Vulkan device or lets the backend own WSI semaphores/presentation.
+The X11 path is implemented directly in `app/src/main/cpp/winlator/vk/vk_renderer.c` and links the shared `snapframe_vk` compute backend:
 
-The WinNative GPU pipeline includes:
-1. Half/quarter/eighth-resolution luma pyramid.
-2. Bidirectional block-matching optical flow.
-3. Flow consistency and an occlusion mask.
-4. Distinct temporal warp phases for ×2/×3/×4, within available output capacity.
-5. Host-owned output images and the existing FIFO presentation path.
-6. Non-blocking timestamp-query telemetry for luma, pyramid, flow, consistency and warp.
-7. Snap AI policy updates using measured GPU pressure and bounded user Flow Scale.
+- `create_snap()` binds the backend to the renderer's existing device/physical device.
+- The render loop records flow processing and temporal warp phases into the existing frame command buffer.
+- The renderer owns swapchain acquisition, output targets, queue submission and present synchronization.
+- It supports up to three generated phases (×2/×3/×4 scheduling) and exposes Debug Flow plus real/generated frame and GPU timing diagnostics.
+- Current output gate: `VK_FORMAT_R8G8B8A8_UNORM` only.
 
-The embedded X11 renderer exposes a capability probe, enable/disable controls, generated/presented frame counters and a **Debug Flow** view. Debug Flow visualizes the forward flow field and consistency/occlusion mask; both forward and backward flow are used by interpolation.
+This direct X11 adapter uses the Vulkan compute backend without routing each frame through the portable `SnapFrameBackendV1` callback layer.
 
-### Validation status and known gaps
+### Embedded Wayland compositor
 
-- WinNative's four-flavor APK workflow run [42134152224](https://github.com/Snap888/WinNative/actions/runs/42134152224) passed on commit `43fdd2f6a3cb214e52bc41134d7e8b9a36f8504e`.
-- This is build validation only; physical Turnip/Adreno runtime validation remains required.
-- Contract tests cover phase fractions, flow-grid bounds, format cases, resize, format/HDR change, scene-cut reset, arm toggle and device-generation change. Static WSI checks do not prove runtime semaphore correctness.
-- Scene discontinuity currently uses explicit events and a >500 ms frame gap; pixel-based scene-cut detection is not implemented.
-- Snap AI receives measured stage GPU times but currently uses neutral motion/confidence/artifact priors. GPU reductions for actual flow confidence, motion complexity and artifact risk are not wired.
-- Do not claim content-aware AI, pixel scene-cut detection or device-validated pacing until implemented and tested.
+The Wayland path uses the portable core and `SnapFrameBackendV1` callback in `waylandcomp/src/framegen_engine.c`. The compositor supplies the frame payload and output ring slots; its FIFO present loop owns submission and WSI synchronization.
 
-## Generic Winlator ports
+## Snap AI in WinNative
 
-The WinNative integration is not automatically present in every Winlator fork. A generic port needs a host adapter for its exact renderer/compositor and DXVK version. DXVK is appropriate for supported D3D9/10/11 paths; a compositor adapter is needed to cover WineD3D and native Vulkan. Keep all device, queue, command submission, WSI semaphore and presentation ownership in that host.
+The WinNative vendored `snap_ai.cpp` matches this repository's `src/snap_ai.cpp` at the checked revisions. The Vulkan backend collects non-blocking timestamp-query results for luma, pyramid, flow, consistency and warp stages.
+
+Current limitation: the host supplies fixed neutral motion magnitude, motion complexity, flow confidence and artifact-risk priors. GPU-derived reductions for these signals are not yet connected. Therefore, document the present implementation as GPU-time-driven bounded Flow Scale adaptation, not full content-aware AI flow control. Policy outputs for refinement passes, reuse and artifact checks are not all connected to distinct backend shader branches yet.
+
+## Winlator status
+
+The `Snap888/winlator-dev-oss:snapframe-backend-v1` branch currently runs portable tests and cross-compiles the Android arm64 library. It does not yet contain a Winlator runtime/DXVK adapter. Port the adapter to the exact Winlator fork and DXVK revision; preserve that runtime's device, queue, command-buffer and WSI ownership.
+
+## Validation status and known gaps
+
+- Portable contract tests validate API behavior and multiplier bounds.
+- WinNative host CI validates the host build/tests; inspect the current WinNative workflow run before claiming a green build.
+- Physical Turnip/Adreno runtime validation remains required for WinNative X11 and Wayland separately.
+- WinNative X11 currently requires RGBA8 UNORM output.
+- Scene discontinuity handling in the Vulkan backend is event/frame-gap based; pixel-content scene-cut detection is not implemented.
+- Snap AI currently consumes measured stage GPU times plus neutral motion/confidence/artifact priors.
+- Winlator runtime adapter and device validation are pending.
+
+Do not describe any host as hardware-validated until real-device tests confirm pacing, no black/stale frames, correct generated-frame ordering, resize handling and device-loss recovery.
