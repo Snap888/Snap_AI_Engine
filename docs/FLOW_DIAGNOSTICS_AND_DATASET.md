@@ -8,7 +8,7 @@ A flow viewer is a debugging/calibration tool, not a second frame-generation pat
 
 **Current WinNative X11 status:** the active Vulkan backend already has `flow_debug.comp`, a debug pipeline and `snap_frame_vk_debug_into()`. The renderer calls it when `snap_debug_flow` is enabled and presents the result as a full-frame HSV flow + consistency view. This is already a useful first flow viewer; it is not a separate overlay and it is not wired into Snap AI. The inspected Wayland adapter does not currently expose this debug mode. Preserve this working path rather than creating a second viewer/presenter.
 
-The next increment is to add selectable confidence, occlusion, forward/backward error, warp-candidate and blend-weight views, then GPU-side scalar reductions for Snap AI. Implement as opt-in modes in the active Vulkan backend or host overlay. They must use the existing host's output/presentation path and must not alter normal frame scheduling.
+The next visualization increment is to add selectable confidence, occlusion, forward/backward error, warp-candidate and blend-weight views. GPU-side scalar reductions for Snap AI have now been added to WinNative `Snap888-patch-1`; keep extending the existing viewer rather than adding another presenter. These modes must use the host's output/presentation path and must not alter normal frame scheduling.
 
 | View | Contents | Diagnoses |
 |---|---|---|
@@ -25,7 +25,7 @@ Provide a selectable phase for 3x/4x output and a freeze-frame/step mode in the 
 
 ## Snap AI feature contract
 
-The policy controller currently accepts normalized scalar metrics through `SnapAIFrameMetrics`. In the inspected WinNative Vulkan backend, GPU time is measured but motion magnitude, motion complexity, flow confidence and artifact risk are still assigned fixed placeholder values. The first AI integration task is to replace those priors with real reductions from the already-computed flow and consistency images. Populate those fields from real GPU reductions/timestamps:
+The policy controller currently accepts normalized scalar metrics through `SnapAIFrameMetrics`. In WinNative `Snap888-patch-1`, the X11 Vulkan backend now reduces the already-computed forward flow and consistency images into four normalized metrics. A 256-lane compute workgroup calculates mean normalized flow magnitude, standard deviation of magnitude, mean matcher confidence weighted by forward/backward consistency, and complementary artifact risk. The 1x1 RGBA32F result is copied into a 16-byte host-visible/coherent staging slot in a four-slot ring; CPU mapping occurs only after the associated timestamp-query slot is available. This avoids full-image readback and explicit GPU waits. Snap AI uses the measured motion magnitude and complexity, confidence, artifact risk and timestamp-derived GPU pressure. If the required Vulkan buffer functions, coherent host memory or RGBA32F storage image are unavailable, content telemetry is skipped and SnapFrame interpolation remains available. Wayland still needs a matching telemetry handoff; this implementation does not imply that Wayland already feeds these metrics to AI. Current metric limitations: complexity is magnitude deviation rather than a full spatial-vector/edge-aware measure; artifact risk is confidence/consistency-derived and does not yet include photometric residuals; GPU pressure is timestamp-budget pressure, not hardware utilization. Populate those fields from real GPU reductions/timestamps:
 
 | AI feature | Source | Use |
 |---|---|---|
