@@ -27,7 +27,7 @@ This milestone is a passive recorder only. It does not hook a graphics API, calc
 - Preserve and verify the existing WinNative flow/synthesis split: forward/backward flow is solved once per source pair and reused by each generated phase. Add dispatch counters/regression tests and ensure the same invariant holds in every host adapter.
 - Invalidate cached flow on scene cut, frame gap, resize, format/device/swapchain generation change.
 - The X11 host already has an opt-in full-frame HSV flow + consistency diagnostic view. Improve it with selectable confidence, occlusion, warp-candidate and blend-weight views; expose an equivalent Wayland control only through its own safe host UI.
-- Add GPU-side reductions for motion magnitude/complexity, confidence, occlusion ratio, photometric residual and search-boundary saturation.
+- **Partially implemented in WinNative `Snap888-patch-1`:** GPU reduction of mean flow magnitude, magnitude deviation, confidence × forward/backward consistency, and complementary risk; four-slot 16-byte asynchronous staging readback feeds Snap AI. Remaining: spatial-vector/edge-aware complexity, separate occlusion ratio, photometric residual and explicit search-boundary saturation metrics; Wayland telemetry handoff and physical-device validation.
 - Add global-motion pre-warp and edge-preserving flow regularization as independently switchable experiments, with per-stage GPU timestamps and A/B quality reports.
 
 See [Win-FG technical audit](WIN_FG_TECHNICAL_AUDIT.md) and [flow diagnostics/data contract](FLOW_DIAGNOSTICS_AND_DATASET.md). These are planned until implemented and device-validated in the active host backend.
