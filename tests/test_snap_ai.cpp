@@ -41,9 +41,14 @@ int main() {
   assert(easy.mode == SNAP_AI_MODE_CONSERVATIVE);
   assert(easy.flow_scale <= 0.55f);
 
-  const auto hard = update(h, make_metrics(2, .95f, .10f, .10f));
+  SnapAIHandle* hardHandle = snap_ai_create(&c);
+  assert(hardHandle);
+  SnapAIDecision hard{};
+  for (uint64_t i = 1; i <= 20; ++i)
+    hard = update(hardHandle, make_metrics(i, .95f, .10f, .10f));
   assert(hard.mode == SNAP_AI_MODE_QUALITY);
   assert(hard.flow_scale >= 0.70f);
+  snap_ai_destroy(hardHandle);
 
   SnapAIHandle* pressureHandle = snap_ai_create(&c);
   assert(pressureHandle);
