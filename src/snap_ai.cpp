@@ -59,6 +59,9 @@ SnapAIHandle* snap_ai_create(const SnapAIConfig* in) {
   auto* h = new (std::nothrow) SnapAIHandle();
   if (!h) return nullptr;
   h->cfg = c; h->warmup_left = c.warmup_frames;
+  /* Start hysteresis from the actual supported ceiling, not 1.0 when the
+   * backend has configured a narrower range such as 0.50..0.75. */
+  h->previous_scale = c.max_flow_scale;
   h->stats.struct_size = sizeof(SnapAIStats);
   return h;
 }
@@ -100,32 +103,46 @@ SnapAIStatus snap_ai_update(SnapAIHandle* h, const SnapAIFrameMetrics* m, SnapAI
     h->last_frame_id = id; h->have_frame = true; return SNAP_AI_OK;
   }
 
-  float scale = 1.0f, radius = 1.0f, threshold = 0.55f;
+  const float scale_range = h->cfg.max_flow_scale - h->cfg.min_flow_scale;
+  float scale = h->cfg.min_flow_scale + scale_range * 0.60f;
+  float radius = 1.0f, threshold = 0.55f;
   uint32_t passes = h->cfg.max_refinement_passes;
   bool reuse = false, artifact = false;
   SnapAIMode mode = SNAP_AI_MODE_ADAPTIVE;
   if (h->cfg.profile == SNAP_AI_PROFILE_PERFORMANCE) {
-    scale = 0.76f; radius = 0.78f; threshold = 0.62f;
+    scale = h->cfg.min_flow_scale + scale_range * 0.30f;
+    radius = 0.78f; threshold = 0.62f;
     passes = h->cfg.min_refinement_passes;
   } else if (h->cfg.profile == SNAP_AI_PROFILE_QUALITY) {
-    scale = 0.96f; radius = 1.12f; threshold = 0.42f;
+    scale = h->cfg.min_flow_scale + scale_range * 0.85f;
+    radius = 1.12f; threshold = 0.42f;
   }
   const float uncertainty = clamp01((1.0f - h->confidence) * 0.65f + risk * 0.35f);
   const float easy = (1.0f - h->complexity) * h->confidence * (1.0f - risk);
   const float hard = clamp01(h->complexity * 0.55f + uncertainty * 0.45f);
+  /* Flow Scale is a workload control: simple, reliable motion should move
+   * toward the configured minimum; complex/uncertain motion should move
+   * toward the maximum. Express all adjustments relative to the backend's
+   * actual capability range instead of starting at 1.0 and being clamped to
+   * the ceiling on almost every frame. */
   if (easy > 0.52f) {
-    scale -= 0.20f * easy;
+    scale -= scale_range * 0.65f * easy;
     if (passes > h->cfg.min_refinement_passes) --passes;
     reuse = easy > 0.70f; mode = SNAP_AI_MODE_CONSERVATIVE;
   }
   if (hard > 0.42f) {
-    scale += 0.12f * hard; radius += 0.22f * hard;
+    scale += scale_range * 0.65f * hard;
+    radius += 0.22f * hard;
     if (passes < h->cfg.max_refinement_passes) ++passes;
     artifact = uncertainty > 0.30f || risk > 0.25f; mode = SNAP_AI_MODE_QUALITY;
   }
-  if (h->pressure > 0.90f) scale = std::min(scale, 0.70f);
-  else if (h->pressure > 0.75f) scale = std::min(scale, 0.82f);
-  else if (h->pressure < 0.45f && uncertainty > 0.25f) scale = std::max(scale, 0.92f);
+  /* Pressure caps are also expressed inside the supported range. */
+  if (h->pressure > 0.90f)
+    scale = std::min(scale, h->cfg.min_flow_scale + scale_range * 0.10f);
+  else if (h->pressure > 0.75f)
+    scale = std::min(scale, h->cfg.min_flow_scale + scale_range * 0.35f);
+  else if (h->pressure < 0.45f && uncertainty > 0.25f)
+    scale = std::max(scale, h->cfg.min_flow_scale + scale_range * 0.85f);
 
   scale = clampf(scale, h->cfg.min_flow_scale, h->cfg.max_flow_scale);
   radius = clampf(radius, 0.5f, 1.5f);
