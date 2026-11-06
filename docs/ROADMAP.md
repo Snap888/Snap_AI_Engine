@@ -24,9 +24,9 @@ This milestone is a passive recorder only. It does not hook a graphics API, calc
 
 ## v0.3 — Flow reuse and quality diagnostics (priority)
 
-- Split flow estimation from phase synthesis: solve forward/backward flow once per real source pair and reuse it for all generated temporal phases.
-- Add dispatch counters proving flow work is independent of multiplier; invalidate history on scene cut, frame gap, resize, format/device/swapchain generation change.
-- Add opt-in flow HSV, confidence, forward/backward error, occlusion, warp-candidate, blend-weight and residual views in the existing host UI/output path.
+- Preserve and verify the existing WinNative flow/synthesis split: forward/backward flow is solved once per source pair and reused by each generated phase. Add dispatch counters/regression tests and ensure the same invariant holds in every host adapter.
+- Invalidate cached flow on scene cut, frame gap, resize, format/device/swapchain generation change.
+- The X11 host already has an opt-in full-frame HSV flow + consistency diagnostic view. Improve it with selectable confidence, occlusion, warp-candidate and blend-weight views; expose an equivalent Wayland control only through its own safe host UI.
 - Add GPU-side reductions for motion magnitude/complexity, confidence, occlusion ratio, photometric residual and search-boundary saturation.
 - Add global-motion pre-warp and edge-preserving flow regularization as independently switchable experiments, with per-stage GPU timestamps and A/B quality reports.
 
