@@ -48,4 +48,18 @@ A successful cross-compile is not a physical-device test. Host repositories own 
 - Compare source/generated present telemetry against existing host counters and captured output. Do not use the recorder as a live FPS source until host event wiring is verified.
 - Validate audio remains unchanged.
 
+## Win-FG-inspired quality and flow-reuse tests
+
+When the active host backend implements the planned flow/synthesis split:
+- For a source pair, flow estimation dispatch count must remain one forward/backward solve regardless of multiplier 2, 3 or 4.
+- Phase-specific warp/composite dispatches must match the number of generated frames.
+- Compare total GPU time and per-stage median/P90 against the current baseline at identical resolution and source cadence.
+- Verify flow history is invalidated on scene cut, dropped/non-consecutive source frame, resize, format change, device loss and swapchain generation change.
+- A/B global-motion pre-warp and flow regularization independently; reject a pass that adds artifacts or exceeds the configured GPU budget without measurable quality improvement.
+- Debug views disabled must add no dispatches or allocations to the normal frame path.
+
+## Visual quality and calibration
+
+Use high-frame-rate source captures with true middle frames for objective evaluation. Compare generated output to the true midpoint using PSNR/SSIM, robust photometric error and edge/boundary error. Calibrate confidence thresholds on training/validation scenes and report held-out results. Never treat a generated frame as its own ground truth.
+
 A portable mock test does not prove shader validity, Vulkan correctness, Android ABI compatibility, visual quality or display scanout timing. Record exact commit, APK, device, driver, settings and logs for every device claim. Original test report is retained in `docs/legacy/`.
