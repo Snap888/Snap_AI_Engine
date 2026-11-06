@@ -5,7 +5,7 @@ The host repositories own their Android Gradle/CMake projects, SDK pins, driver/
 ## Current host workflows
 
 - [Skyrim_Android](https://github.com/Snap888/Skyrim_Android/tree/snapframe-backend-v1): host-specific DXVK adapter compile workflow. A full APK build may additionally require generated `gen/` sources or a supplied `gen_url` archive.
-- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1): contains two SnapFrame host paths: direct X11 `VulkanRenderer` integration and a separate Wayland compositor adapter. Its own CI is responsible for APK flavor builds and native contract/WSI tests. Physical Turnip validation is still a manual/device stage.
+- [WinNative](https://github.com/Snap888/WinNative/tree/Snap888-patch-1): contains two SnapFrame host paths: direct X11 `VulkanRenderer` integration and a separate Wayland compositor adapter. The portable Snap AI presentation recorder is now compiled into the vendored `snap_ai` static target, but it is not yet connected to real presentation events. WinNative CI owns APK flavor builds and native contract/WSI tests. Physical Turnip validation is still a manual/device stage.
 - [Winlator dev OSS](https://github.com/Snap888/winlator-dev-oss/tree/snapframe-backend-v1): portable SnapFrame tests and Android arm64 library cross-compile only. A Winlator DXVK/runtime adapter is not yet present.
 
 Workflow templates under `integrations/workflows/` are examples; host application workflows must run in the host repositories.
@@ -14,16 +14,19 @@ Workflow templates under `integrations/workflows/` are examples; host applicatio
 
 ### Skyrim_Android
 
-Resolve any host DXVK adapter compile errors, build the full APK with generated sources, then test on Adreno and Mali. Validate rapid toggles, resize, scene cuts, device recreation, LSFG mutual exclusion, GPU timings, present results and audio stability.
+Resolve any host DXVK adapter compile errors, build the full APK with generated sources, then test on Adreno and Mali. Validate rapid toggles, resize, scene cuts, device recreation, GPU timings, present results and audio stability.
 
 ### WinNative
 
 1. Keep X11 and Wayland adapters separate while sharing the portable engine and Vulkan compute implementation where practical.
 2. Verify the X11 output-format gate and Vulkan format capability checks against the formats actually used by the shaders.
 3. Test X11 Debug Flow and confirm both the GPU stage timing line and increasing generated-frame counter.
-4. Verify per-game settings persistence and native state propagation.
-5. Run physical Turnip/Adreno tests for X11 and Wayland independently, including resize, device loss, enable/disable and sustained FIFO pacing.
-6. Replace neutral Snap AI motion/confidence/artifact priors with measured GPU reductions before claiming content-aware adaptation.
+4. Wire the telemetry recorder to successful source/generated presents at the outermost X11 presentation boundary and Wayland present-completion boundary.
+5. Assign logical presentation IDs and increment swapchain generation on recreation; reject failed/out-of-date presents.
+6. Poll telemetry snapshots from the diagnostics/UI thread and compare results with existing host counters and captured output.
+7. Verify per-game settings persistence and native state propagation.
+8. Run physical Turnip/Adreno tests for X11 and Wayland independently, including resize, device loss, enable/disable and sustained FIFO pacing.
+9. Replace neutral Snap AI motion/confidence/artifact priors with measured GPU reductions before claiming content-aware adaptation.
 
 ### Winlator
 
