@@ -1,65 +1,32 @@
-# SnapFrame and Snap AI testing
+# SnapFrame and Snap AI validation
 
-## Automated portable tests
+## Portable tests
 
-The root project builds the Snap AI policy tests and frame-telemetry tests, as well as SnapFrame core tests.
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-  -DSNAP_AI_BUILD_TESTS=ON -DSNAP_FRAME_BUILD_TESTS=ON
+~~~sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-```
+~~~
 
-The frame telemetry test covers:
-- source and generated stream separation;
-- duplicate logical event rejection (including Present/Present1 wrapper scenario);
-- per-stream and combined interval percentiles;
-- stale swapchain generation rejection;
-- generation reset and history clearing;
-- invalid event rejection and diagnostic counters.
+Test core lifecycle, config, frame ordering, bypass, output-count bounds, hot settings, scene reset and invalid inputs. Shader CI must compile GLSL for the declared Vulkan target and validate generated SPIR-V.
 
-The recorder test validates deterministic CPU-side accounting only. It does not test an actual graphics API or prove that the host event boundary represents successful display delivery.
+## Algorithm invariants
 
-## Shader validation
+- Flow is solved once per consecutive source pair regardless of ×2/×3/×4 multiplier.
+- Phase-specific synthesis dispatch count matches generated phases actually supported.
+- Generated phases are distinct and chronological.
+- No stale flow after scene cut, frame gap, resize, format change, device loss or swapchain generation change.
+- Debug-off mode adds no diagnostic dispatch/readback.
+- Invalid metrics bypass safely; no fabricated confidence/risk values.
 
-The imported GLSL compute shaders must compile for Vulkan 1.1 and pass `spirv-val`. CI runs `framegen/tools/compile_snapframe_shaders.py` and validates standalone SnapFrame configuration/build/tests.
+## X11 and Wayland host tests
 
-## CI matrix
+Run separately. Verify host device/queue/command-buffer ownership; real-frame fallback; first-slot and additional-slot WSI timeout policy; acquire timeout/error handling without treating VK_TIMEOUT as device loss; generated output ordering and successful presents; resize/swapchain recreation; format/HDR negotiation; enable/disable; scene transitions; device loss/recovery; long sessions; audio and unrelated renderer paths unchanged.
 
-The repository workflows cover:
-- Linux native build and tests;
-- Windows native build and tests;
-- Android arm64 cross-compilation of the portable libraries;
-- shader compile/validation and standalone SnapFrame build/tests.
+## GSFG A/B suite
 
-A successful cross-compile is not a physical-device test. Host repositories own their APK build and presentation integration workflows.
+Use identical physical hardware, driver, game build, scene route, resolution, refresh and graphics settings. Start within comparable thermal range, alternate order and run at least three captures. Record exact commit/APK and logs.
 
-## Host and device validation
+Measure quality against a real high-frame-rate reference midpoint using PSNR/SSIM plus edge/occlusion/temporal metrics. Measure real source FPS, generated compute count, successful generated presents, acquire misses, pacing, latency, per-stage GPU timings, CPU overhead and sustained thermal/power behavior.
 
-- Android ARM64 NDK build of the backend and host APK.
-- Startup and clean shutdown.
-- Resolution change / swapchain recreation.
-- Device loss and reinitialization.
-- Static scene, slow pan, fast rotation, moving NPCs, foliage/particles/water, HUD/inventory/map and long-run stress.
-- Compare baseline vs generation-off vs generation-on.
-- Inspect flow confidence, boundary saturation, consistency, HUD ghosting and disocclusion artifacts.
-- Validate generated frame is presented only after successful GPU completion and original frame fallback remains intact.
-- Compare source/generated present telemetry against existing host counters and captured output. Do not use the recorder as a live FPS source until host event wiring is verified.
-- Validate audio remains unchanged.
-
-## Win-FG-inspired quality and flow-reuse tests
-
-When the active host backend implements the planned flow/synthesis split:
-- For a source pair, flow estimation dispatch count must remain one forward/backward solve regardless of multiplier 2, 3 or 4.
-- Phase-specific warp/composite dispatches must match the number of generated frames.
-- Compare total GPU time and per-stage median/P90 against the current baseline at identical resolution and source cadence.
-- Verify flow history is invalidated on scene cut, dropped/non-consecutive source frame, resize, format change, device loss and swapchain generation change.
-- A/B global-motion pre-warp and flow regularization independently; reject a pass that adds artifacts or exceeds the configured GPU budget without measurable quality improvement.
-- Debug views disabled must add no dispatches or allocations to the normal frame path.
-
-## Visual quality and calibration
-
-Use high-frame-rate source captures with true middle frames for objective evaluation. Compare generated output to the true midpoint using PSNR/SSIM, robust photometric error and edge/boundary error. Calibrate confidence thresholds on training/validation scenes and report held-out results. Never treat a generated frame as its own ground truth.
-
-A portable mock test does not prove shader validity, Vulkan correctness, Android ABI compatibility, visual quality or display scanout timing. Record exact commit, APK, device, driver, settings and logs for every device claim. Original test report is retained in `docs/legacy/`.
+A generated-frame counter is not a display counter. Lower GPU time is not a win if artifacts or dropped frames increase. Portable CI and mock backends do not prove physical-device image quality or scanout.
