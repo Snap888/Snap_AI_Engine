@@ -1,15 +1,31 @@
-# Performance and telemetry
+# Performance, telemetry and optimization
 
-The previous Skyrim_Android device report records flow estimation as the dominant compute cost. In one 2448x1080 capture, forward and backward flow were each around 5 ms median; the total chain was around 13 ms median. These are historical measurements from the preserved report, not portable benchmarks or guaranteed current timings.
+## Optimize the whole displayed-frame path
 
-Measure per-stage GPU timestamps on the backend: capture copy, luma, forward flow, backward flow, consistency, warp, composite and total chain. Compare identical scenes, same resolution, same build and same device state. Record median/P90, dropped frames, real FPS and output FPS.
+Measure capture/history, luma/pyramid, forward/backward flow and fusion, consistency/metric reductions, phase-specific warp/candidate reconstruction, composite/copy, swapchain acquisition/present, CPU render/present overhead and thermal behavior.
 
-## Presentation timing
+For ×2/×3/×4, report flow solve count separately from synthesis phase count. The intended invariant is one flow solve per source pair, then phase-specific synthesis for each generated output.
 
-The portable `snap_ai::telemetry::Recorder` stores host-reported successful source/generated present events and computes rolling interval median/p95/p99 plus CPU present-duration median/p95. It is passive and does not infer presentation from GPU submission or frame-generation completion.
+## GPU timing
 
-A host must instrument the actual successful presentation boundary, supply monotonic timestamps and stable logical IDs, and track swapchain generations. Do not call its interval values physical scanout measurements. The recorder itself does not calculate FPS; a host may derive an estimated rate from sufficiently populated intervals.
+Use Vulkan timestamp queries and correlate each result to source-pair/frame ID. Collect non-blockingly after completion. Report median, P90 and P95, not only average/max. Timestamp-derived GPU budget pressure is not hardware utilization, queue backlog or thermal state.
 
-`record()` is mutex-protected and uses bounded preallocated storage; it is not lock-free. Poll `snapshot()` from a diagnostics/UI thread because snapshot calculation allocates temporary vectors and sorts the bounded window. See [Frame telemetry API](FRAME_TELEMETRY_API.md).
+Historical Skyrim measurements and older logs are useful for identifying bottlenecks but are not current WinNative benchmarks. Never transfer timings across devices, drivers, resolutions or branches without qualification.
 
-Do not interpret heuristic estimates as actual savings. Lower flow scale can reduce compute but may lower motion quality; quantify both.
+## Flow reductions and Snap AI
+
+WinNative asynchronously reduces four values: mean normalized flow magnitude; magnitude deviation (complexity proxy); forward/backward-consistency-weighted confidence; and forward-confidence inconsistency risk proxy. The bounded staging/query path avoids synchronous full-frame readback.
+
+Magnitude deviation is not full edge-aware complexity. Risk is not calibrated artifact probability. Further features should include occlusion ratio, photometric residual, vector-direction variation and search-boundary saturation.
+
+## Presentation and WSI
+
+Do not equate generated compute completion, successful swapchain acquisition, successful queue submission, successful present and physical display scanout.
+
+X11/Wayland bounded acquire policy gives the first generated slot a refresh-aware wait and limits additional slots to 1 ms. This protects the host from serial long waits but does not guarantee delivery. Measure acquire success/miss ratio and successful generated presents separately.
+
+## GSFG comparison
+
+Use the same device, driver, scene, resolution, refresh, game settings and thermal starting condition. Alternate test order and repeat captures. Compare image quality against true midpoint ground truth, successfully displayed output rate, dropped/missed generated frames, pacing variance, latency, CPU overhead, GPU time per additional displayed frame, power/thermal behavior and long-run stability.
+
+The target is to beat GSFG across a balanced suite, not by optimizing one headline FPS number. Publish scenarios where SnapFrame loses as well as wins.
