@@ -36,7 +36,7 @@ claim semantic occlusion understanding.
 
 The host exposes three modes:
 
-- AUTO: Snap AI enables the candidate path only for SNAP_AI_MODE_QUALITY.
+- AUTO: Snap AI enables the candidate path for SNAP_AI_MODE_QUALITY below 0.75 GPU pressure, disables above 0.90, and retains the previous state between thresholds.
 - OFF: force the original midpoint warp.
 - ON: force candidate reconstruction for A/B testing.
 
