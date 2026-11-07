@@ -1,52 +1,56 @@
 # Architecture
 
-## Scope
+## Components
 
-Snap AI Engine is an explainable AI-Lite policy controller, not a frame interpolator or neural image model. It consumes scalar telemetry and returns bounded recommendations for a later frame's flow workload.
+1. SnapFrame portable core: versioned C ABI, frame ordering, configuration, bypass/fallback, lifecycle and backend callbacks. It is graphics-API neutral.
+2. SnapFrame Vulkan backend: records luma/pyramid, motion estimation, fusion, consistency and reconstruction work using host-provided Vulkan resources.
+3. Host adapters: bind the backend to the actual renderer/compositor. X11 and Wayland are separate integrations, not one universal presenter.
+4. Snap AI policy: deterministic bounded controller consuming scalar telemetry and recommending later-frame workload settings.
+5. Frame telemetry recorder: passive CPU-side recorder for host-reported presentation events. It does not hook Present, infer scanout or pace frames.
 
-The repository also contains a separate passive frame-presentation telemetry recorder. It counts host-reported successful source/generated presentation events and computes bounded rolling interval/CPU-duration statistics. It is not a graphics hook or frame pacer.
+## Runtime flow
 
-## Data flow
+~~~text
+real source frame
+ -> host capture/history
+ -> luma + pyramid
+ -> forward/backward flow (one solve per source pair)
+ -> motion fusion + consistency
+ -> GPU reductions / timestamps
+ -> Snap AI policy (for a subsequent safe frame)
+ -> phase-specific warp / candidate reconstruction
+ -> host-owned output slots
+ -> host queue submission and presentation
+~~~
 
-```text
-Game/API -> DXVK adapter or Vulkan compositor -> GPU/workload telemetry
-       -> Snap AI Engine -> SnapAIDecision
-       -> SnapFrame core -> Vulkan flow/warp/reconstruction -> host present
+For multiplier M (2, 3 or 4), the backend may generate up to M-1 distinct chronological phases. It must not repeat one midpoint to fake ×3/×4. Motion estimation is reused across phases for the same source pair.
 
-Host successful-present boundary -> PresentEvent -> Recorder -> diagnostics/UI
-```
+## WinNative host paths
 
-The host remains responsible for capture, GPU resources, image processing, Vulkan barriers, semaphores, queue ownership, swapchain lifecycle and present scheduling. The recorder observes host events only; it does not alter this path.
+- X11: embedded VulkanRenderer calls the SnapFrame Vulkan backend from its renderer command path. The renderer owns swapchain acquisition, output targets, submission and presentation.
+- Wayland: compositor adapter wraps the portable SnapFrameBackendV1 callback API and passes compositor-owned Vulkan handles. The compositor retains FIFO presentation and WSI ownership.
 
-## Controller stages
+Both paths use the host device/queue and keep graphics synchronization outside SnapFrame and Snap AI. See [INTEGRATION_WINNATIVE.md](INTEGRATION_WINNATIVE.md).
 
-1. Validate structure sizes and finite telemetry.
-2. Bypass on disabled state, invalid metrics, scene cut or non-monotonic frame ID.
-3. Smooth motion complexity, flow confidence and GPU pressure using EMA.
-4. Estimate scene ease and uncertainty.
-5. Select profile baseline.
-6. Apply GPU pressure governor.
-7. Apply hysteresis and output bounded policy.
-8. Update aggregate statistics.
+## Snap AI signals
 
-The controller is AI-Lite policy logic. Its estimates are not measurements; hosts must provide genuine metrics and must not fabricate confidence or artifact risk.
+The WinNative Vulkan backend asynchronously reduces existing flow/consistency data into mean normalized flow magnitude, magnitude deviation (complexity proxy), consistency-weighted confidence and a confidence/consistency risk proxy. GPU stage timestamps provide workload timing. The readback is delayed through a bounded ring and consumed only when the associated query slot is complete.
 
-## Presentation recorder
+Magnitude deviation is not full edge-aware vector complexity. The risk value is not calibrated artifact probability. Timestamp pressure is not hardware utilization or thermal state. Unavailable features must remain invalid, not be replaced with fabricated zeroes or perfect confidence.
 
-- Caller supplies monotonic nanosecond timestamps and a logical presentation ID.
-- Events are classified as source or generated and associated with a swapchain generation.
-- Duplicate IDs are rejected; stale-generation events are rejected.
-- A bounded ring stores recent accepted samples; snapshots calculate median/p95/p99 intervals and CPU present-duration percentiles.
-- The recorder does not derive or publish FPS itself and does not establish physical scanout timing.
+## WSI and frame delivery
 
-See [Frame telemetry API](FRAME_TELEMETRY_API.md) for the complete integration contract and metric semantics.
+Generated compute completion, swapchain acquisition, successful present and physical scanout are different events. A generated frame must not be counted as displayed merely because synthesis completed.
 
-## Threading and memory
+X11 and Wayland now use bounded acquisition waits: one first generated slot may wait within a refresh-aware budget; additional generated slots use a short best-effort wait. This avoids serial long waits but does not guarantee delivery. WSI outcomes are not yet a complete Snap AI input; closed-loop delivery adaptation remains planned.
 
-Calls on one Snap AI policy handle are serialized by a mutex. Prefer one handle per renderer context. The policy engine uses small CPU state, no per-frame image buffers, no Vulkan objects and no GPU readback.
+## Ownership and failure
 
-The telemetry recorder also serializes `record`, `reset` and `snapshot` with a mutex. `record` uses preallocated bounded storage and performs no dynamic allocation or graphics operation, but it is **not lock-free**. `snapshot` allocates temporary CPU vectors and sorts the bounded sample set; call it from a diagnostics/UI thread, not from a latency-sensitive present callback. Do not destroy either object while another thread uses it.
+- Host owns device, queue, command buffers, swapchain, present semaphores, output slots and presentation.
+- Backend owns only private pipelines, descriptors, samplers, intermediate images and memory.
+- Borrowed host handles are valid only for the documented callback/lifetime.
+- No private queue submission, synchronous GPU wait, full-frame CPU readback or unbounded render-thread allocation.
+- On invalid telemetry, backend failure, device loss or unsupported formats, bypass generation and retain the real frame.
+- Reinitialize backend resources only at safe host device/context lifecycle points.
 
-## Failure model
-
-On any non-OK policy status, ignore the decision and use baseline settings. Invalid telemetry events are rejected and counted. A missing optional library or telemetry recorder must never prevent the host renderer from starting.
+Policy calls are serialized per handle. The frame telemetry recorder uses a mutex and bounded storage; it is not lock-free. Snapshot sorting/allocation belongs on a diagnostics thread, never a latency-sensitive present callback.
