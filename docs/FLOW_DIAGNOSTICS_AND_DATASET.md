@@ -84,3 +84,10 @@ Do not train a full neural interpolator as the next step. The previous Adreno me
 4. Confidence calibration is monotonic against held-out ground-truth error.
 5. Dataset manifest validates every blob/hash and rejects missing consent metadata where required by capture policy.
 6. Model inference (if later added) is optional, quantized, bounded by a measured GPU budget and never controls Vulkan synchronization.
+
+
+## WinNative host telemetry handoff update
+
+WinNative now retains the latest completed four-channel GPU reduction in the SnapFrame Vulkan backend and exposes it through a non-blocking host getter. X11 logs the values in its existing 120-frame diagnostics interval; Wayland exposes the same values through its frame-generation adapter and logs every 120 source frames. The sample is delayed by the existing four-slot readback ring and is never synchronously fetched from the GPU.
+
+The four normalized values are motion magnitude, magnitude deviation (complexity proxy), forward/backward-consistency-weighted confidence, and complementary artifact risk. These are diagnostics/proxies, not ground-truth occlusion or photometric residual measurements. The current Flow Viewer still visualizes flow plus consistency; extra selectable viewer layers remain pending.
