@@ -1,35 +1,37 @@
-# Testing and validation
+# Snap AI policy tests
 
-## Automated tests
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+Build:
+
+~~~sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSNAP_AI_BUILD_TESTS=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-```
+~~~
 
-Unit tests cover default config, handle creation, warmup bypass, bounded outputs, scene-cut reset, invalid telemetry, enable/disable, profile validation, stats and invalid config rejection.
+Policy tests cover config validation, lifecycle, warmup, bounded outputs, enable/disable, profile validation, invalid telemetry, scene-cut reset, frame ordering, stats and safe bypass.
 
-## Integration matrix
-| Case | Profile | Scene | Expected |
-|---|---|---|---|
-| AI Off | — | fixed route | Baseline unchanged |
-| Performance | Performance | static/simple | lower flow tier only at high confidence |
-| Balanced | Balanced | mixed | stable policy, no rapid oscillation |
-| Quality | Quality | fast motion | more validation/refinement when uncertain |
-| Scene cut | any | hard cut | bypass/reset |
-| Invalid metrics | any | missing telemetry | bypass |
-| GPU saturated | any | high pressure | pressure governor limits work |
+## Required policy cases
 
-## Device protocol
-Use identical device, APK, scene, resolution, graphics settings and thermal starting condition. Run at least three captures per mode. Record source/generated FPS, flow GPU time, total generation GPU time, frame pacing, power/thermal state, artifact rate and AI CPU time. Compare median and p95. The estimated saving field is only a policy heuristic; calculate real savings from GPU timestamps.
+| Case | Expected behavior |
+|---|---|
+| AI disabled | Baseline SnapFrame settings unchanged |
+| High GPU pressure | Clamp workload within configured bounds |
+| High motion / low confidence | Avoid unsafe aggressive flow reduction |
+| Invalid/missing metric | Safe bypass; never fabricate a value |
+| Scene cut/frame gap | Reset temporal policy/history |
+| Rapidly changing metrics | Hysteresis prevents tier oscillation |
+| Backend/library failure | Real-frame path remains available |
+| WSI miss burst (planned closed loop) | Reduce generated slot/multiplier budget, then recover slowly |
+| X11 vs Wayland | Same policy semantics; host synchronization remains separate |
 
-## Production acceptance
-- no crash or Vulkan validation errors;
-- AI-Off output/performance unchanged;
-- no stale history across cuts/resolution changes;
-- stable policy under pans and scene transitions;
-- repeatable measured GPU improvement greater than controller overhead;
-- no unacceptable visual artifact regression;
-- sustained thermal behavior no worse.
+## Host and device validation
 
-No Android device test is claimed by the standalone repository.
+Portable tests do not prove shader correctness or GPU presentation. Host validation must include Android ARM64 APK build; X11 and Wayland separately; device/GPU/driver; resolution/format/refresh; thermal start state; static scenes, pans, fast rotation, moving objects, foliage/particles, water, HUD, inventory/map and scene cuts; source FPS; generated compute count; successful generated presents; acquire miss ratio; GPU stage percentiles; resize/swapchain recreation; enable/disable; device loss/recovery; long-run stability; and audio/unrelated paths unchanged.
+
+## GSFG A/B protocol
+
+Use identical physical hardware, driver, game build, scene route, resolution, refresh and graphics settings. Start within comparable thermal range, alternate run order and run at least three captures. Record exact commit/APK and logs.
+
+Measure quality against a real high-frame-rate reference midpoint using PSNR/SSIM plus edge/occlusion/temporal metrics. Measure real source FPS, generated compute count, successful generated presents, acquire misses, pacing, latency, per-stage GPU timings, CPU overhead and sustained thermal/power behavior.
+
+A generated-frame counter is not a display counter. Lower GPU time is not a win if artifacts or dropped frames increase. Portable mock tests are not a GSFG benchmark.
