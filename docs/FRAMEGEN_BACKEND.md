@@ -1,74 +1,43 @@
-# SnapFrame backend contract
+# SnapFrame backend and host ownership contract
 
-## Backend owns graphics
+## Ownership
 
-A backend implements `SnapFrameBackendV1` and records preprocessing, motion estimation, consistency and reconstruction passes, image barriers and temporal history. The portable core never interprets graphics handles.
+The host owns Vulkan instance/device/physical device, queues, command buffers, swapchain, output slots, WSI semaphores, submission and presentation. A Vulkan backend borrows host resources for the documented callback lifetime and owns only its private pipelines, descriptors, samplers, intermediate images and memory.
 
-The Vulkan host payload is `framegen/include/snap_frame/snap_frame_vulkan.h`. A Vulkan backend receives a `SnapFrameVulkanFrame` through `SnapFrameFrameInput.native_frame`. It borrows the compositor's physical device, device, queue, command buffer, source image/view and output slots for the callback duration.
+The backend must not create a second device/queue, submit the host command buffer, wait synchronously for GPU completion, perform full-frame CPU readback, destroy host objects, take over frame pacing or retain borrowed handles beyond their valid lifetime.
 
-## Vulkan ownership rules
+## Callback contract
 
-- The host owns the `VkInstance`, `VkPhysicalDevice`, `VkDevice`, queues, command pools/buffers, swapchain and all present semaphores.
-- The backend records into the supplied command buffer. It must not create a second device/queue, submit the host command buffer, wait for GPU completion, perform CPU readback, or destroy host objects.
-- The backend may retain only its own pipelines, descriptors, samplers, intermediate images and memory. Release them before host device teardown.
-- The host supplies output images/views and declares their initial/final layouts. The backend writes only those slots and leaves them in the declared final layout.
-- Preserve the source image's declared layout and ownership.
-- Version 1 forbids queue-family ownership transfers: all resources must be usable on the supplied queue family.
-- Express GPU dependencies as barriers in the supplied command buffer. Never insert a private queue submission or semaphore into the host WSI chain.
+- initialize: allocate private resources and fail cleanly if capabilities are absent.
+- update_config: apply changes at a serialized safe point.
+- reset_history: invalidate history after scene discontinuity, frame gap, resize, format/device/swapchain recreation or enable-state change.
+- process_frame: record bounded GPU work into the supplied command buffer.
+- shutdown: release backend-owned resources before host device teardown.
 
-The core remains Vulkan-header-free; only a Vulkan adapter includes the interop header.
+## Temporal phases and flow reuse
 
-## Callback rules
+For multiplier M, emit no more than M-1 distinct generated phases in chronological order. Multiplier 1 is bypass. ×2/×3/×4 correspond to up to one/two/three generated phases. The backend should solve forward/backward flow once for a consecutive source pair and reuse it for phase-specific warp/reconstruction. Repeating one midpoint for multiple slots is invalid.
 
-- `initialize`: allocate device-bound resources; fail cleanly if required capabilities are missing.
-- `update_config`: apply bounded settings at a serialized host synchronization point.
-- `reset_history`: clear temporal state after enable changes, scene discontinuity, resize or device recreation.
-- `process_frame`: record bounded work; never block for GPU completion, perform CPU readback or allocate unbounded per-frame memory.
-- `shutdown`: release backend-owned resources before device destruction.
-- For multiplier `M`, emit no more than `M-1` distinct generated phases in chronological order. The core validates the count; the host presents them in that order.
+The host presents only outputs whose GPU work completed successfully. Generation count, swapchain acquire success, successful present and physical scanout are separate quantities.
 
-## Temporal multiplier support
+## WinNative X11
 
-The portable API accepts multiplier 1 (bypass) and 2..4 (up to three generated phases). This is a scheduling/API capability, not a claim that every backend implements all multipliers. A backend must enforce its own capability limits.
+The embedded VulkanRenderer calls the Vulkan backend directly. The renderer owns swapchain image acquisition, generated output targets, command submission and present. The active X11 output-format gate is RGBA8 UNORM; do not claim general HDR or RGBA16F swapchain output for this path.
 
-## WinNative host adapters
+Generated-slot acquire policy: first slot uses a refresh-aware timeout bounded to 8–16 ms; subsequent generated slots use a 1 ms best-effort timeout. VK_TIMEOUT is a missed opportunity, not device loss by itself.
 
-WinNative branch `Snap888-patch-1` contains two distinct integrations:
+## WinNative Wayland
 
-### Embedded X11 `VulkanRenderer`
+The compositor adapter wraps the portable SnapFrameBackendV1 API. The compositor supplies borrowed Vulkan resources and retains FIFO presentation, queue submission and WSI semaphores. The first generated slot waits one refresh interval clamped to 4–16 ms (unknown refresh defaults to 16 ms); subsequent slots use 1 ms.
 
-The X11 path is implemented directly in `app/src/main/cpp/winlator/vk/vk_renderer.c` and links the shared `snapframe_vk` compute backend:
+Wayland format/HDR behavior is separate from X11 and must be validated against negotiated surface formats.
 
-- `create_snap()` binds the backend to the renderer's existing device/physical device.
-- The render loop records flow processing and temporal warp phases into the existing frame command buffer.
-- The renderer owns swapchain acquisition, output targets, queue submission and present synchronization.
-- It supports up to three generated phases (×2/×3/×4 scheduling) and exposes Debug Flow plus real/generated frame and GPU timing diagnostics.
-- Current output gate: `VK_FORMAT_R8G8B8A8_UNORM` only.
+## Snap AI boundary
 
-This direct X11 adapter uses the Vulkan compute backend without routing each frame through the portable `SnapFrameBackendV1` callback layer.
+Snap AI consumes scalar telemetry and returns bounded policy suggestions. WinNative has asynchronous reductions for motion magnitude, magnitude deviation, consistency-weighted confidence and a confidence/consistency risk proxy, plus GPU timestamps. The proxy is not calibrated artifact probability; complexity is not yet a complete edge-aware vector measure.
 
-### Embedded Wayland compositor
+The AI does not own Vulkan synchronization or decide acquire/present operations. Feeding WSI delivery ratios into policy is planned, not a current closed loop. Not every decision field is wired to a separate shader control.
 
-The Wayland path uses the portable core and `SnapFrameBackendV1` callback in `waylandcomp/src/framegen_engine.c`. The compositor supplies the frame payload and output ring slots; its FIFO present loop owns submission and WSI synchronization.
+## Validation
 
-## Snap AI in WinNative
-
-The WinNative vendored `snap_ai.cpp` matches this repository's `src/snap_ai.cpp` at the checked revisions. The Vulkan backend collects non-blocking timestamp-query results for luma, pyramid, flow, consistency and warp stages.
-
-Current limitation: the host supplies fixed neutral motion magnitude, motion complexity, flow confidence and artifact-risk priors. GPU-derived reductions for these signals are not yet connected. Therefore, document the present implementation as GPU-time-driven bounded Flow Scale adaptation, not full content-aware AI flow control. Policy outputs for refinement passes, reuse and artifact checks are not all connected to distinct backend shader branches yet.
-
-## Winlator status
-
-The `Snap888/winlator-dev-oss:snapframe-backend-v1` branch currently runs portable tests and cross-compiles the Android arm64 library. It does not yet contain a Winlator runtime/DXVK adapter. Port the adapter to the exact Winlator fork and DXVK revision; preserve that runtime's device, queue, command-buffer and WSI ownership.
-
-## Validation status and known gaps
-
-- Portable contract tests validate API behavior and multiplier bounds.
-- WinNative host CI validates the host build/tests; inspect the current WinNative workflow run before claiming a green build.
-- Physical Turnip/Adreno runtime validation remains required for WinNative X11 and Wayland separately.
-- WinNative X11 currently requires RGBA8 UNORM output.
-- Scene discontinuity handling in the Vulkan backend is event/frame-gap based; pixel-content scene-cut detection is not implemented.
-- Snap AI currently consumes measured stage GPU times plus neutral motion/confidence/artifact priors.
-- Winlator runtime adapter and device validation are pending.
-
-Do not describe any host as hardware-validated until real-device tests confirm pacing, no black/stale frames, correct generated-frame ordering, resize handling and device-loss recovery.
+Portable contract tests validate API rules and output bounds. Host CI validates only jobs actually run and pass. Physical X11 and Wayland device validation must separately confirm image quality, output ordering, acquire/present behavior, resize, format/HDR, device loss, thermal stability and fallback.
