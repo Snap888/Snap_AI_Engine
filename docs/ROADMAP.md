@@ -1,49 +1,61 @@
-# Roadmap
+# Roadmap: surpass GSFG through measured engineering
 
-## v0.1 — AI-Lite reference (implemented)
+The product objective is to surpass GSFG in image quality, successful frame delivery, latency, GPU cost, pacing, power/thermal efficiency, robustness and supported host paths. This is a target with explicit acceptance gates, not a present performance claim. See [GSFG competitive plan](GSFG_COMPETITIVE_PLAN.md).
 
-C ABI, C++17 policy controller, profiles, smoothing, hysteresis, pressure governor, safe bypass, build, tests, example and integration documentation.
+## Current baseline — implemented or integrated
 
-## v0.1.x — Portable presentation telemetry (implemented)
+- Portable SnapFrame core and versioned backend ABI.
+- Host-owned Vulkan interop contract.
+- WinNative X11 direct VulkanRenderer integration and separate Wayland SnapFrameBackendV1 adapter.
+- Luma/pyramid, bidirectional motion, fusion, consistency and phase-specific reconstruction pipeline.
+- Up to ×2/×3/×4 API/scheduling capability, with up to three generated phases.
+- Flow reuse across phases of one source pair.
+- GPU timestamps and asynchronous flow reductions in WinNative backend.
+- Snap AI deterministic policy with bounded settings and hysteresis.
+- X11 Debug Flow modes: motion, matcher confidence and forward/backward consistency.
+- Bounded generated-slot WSI acquire waits on X11 and Wayland.
 
-- Public C++ `Recorder` API and bounded sample ring.
-- Source/generated stream classification and duplicate logical-present rejection.
-- Swapchain-generation tracking and stale-event rejection.
-- Median/p95/p99 interval and CPU present-duration snapshots.
-- Deterministic unit tests and host integration documentation.
+Check the active host branch and latest CI before claiming a build passed. Portable tests do not prove device behavior.
 
-This milestone is a passive recorder only. It does not hook a graphics API, calculate FPS, alter pacing or imply host presenter integration.
+## P0 — close the delivery feedback loop
 
-## v0.2 — Host presentation adapters (next)
+- Instrument acquire attempts, success, timeout, other errors, successful generated presents and swapchain generation in both X11 and Wayland.
+- Validate counters against actual host counters and captured output.
+- Feed rolling WSI delivery ratio into a shared Snap AI feature set.
+- Reduce generation multiplier/slot budget when delivery is poor; restore gradually after stable periods.
+- Add deterministic tests for timeout bursts, swapchain recreation, stale IDs, partial delivery and recovery.
 
-- Wire the recorder to successful outermost presentation events in WinNative X11 and Wayland.
-- Add source/generated logical IDs and swapchain generation lifecycle.
-- Compare event counts with existing host counters and captured output.
-- Add diagnostic overlay fields after the event boundary is validated.
-- Keep present mode, queue depth and existing single SnapFrame pipeline unchanged.
+## P1 — complete flow intelligence and quality signals
 
-## v0.3 — Flow reuse and quality diagnostics (priority)
+- Improve complexity from magnitude deviation to edge-aware spatial vector disagreement.
+- Add separate occlusion/disocclusion ratio, photometric residual and search-boundary saturation.
+- Calibrate confidence/risk against held-out true midpoint frames.
+- Add selectable views for confidence, occlusion, FB error, candidate warps and blend weights; keep debug-off path free of extra dispatches.
+- Add equivalent safe diagnostics in Wayland only through its own host UI.
 
-- Preserve and verify the existing WinNative flow/synthesis split: forward/backward flow is solved once per source pair and reused by each generated phase. Add dispatch counters/regression tests and ensure the same invariant holds in every host adapter.
-- Invalidate cached flow on scene cut, frame gap, resize, format/device/swapchain generation change.
-- The X11 host already has an opt-in full-frame HSV flow + consistency diagnostic view. Improve it with selectable confidence, occlusion, warp-candidate and blend-weight views; expose an equivalent Wayland control only through its own safe host UI.
-- **Partially implemented in WinNative `Snap888-patch-1`:** GPU reduction of mean flow magnitude, magnitude deviation, confidence × forward/backward consistency, and complementary risk; four-slot 16-byte asynchronous staging readback feeds Snap AI. Remaining: spatial-vector/edge-aware complexity, separate occlusion ratio, photometric residual and explicit search-boundary saturation metrics; Wayland telemetry handoff and physical-device validation.
-- Add global-motion pre-warp and edge-preserving flow regularization as independently switchable experiments, with per-stage GPU timestamps and A/B quality reports.
+## P2 — algorithmic quality and compute efficiency
 
-See [Win-FG technical audit](WIN_FG_TECHNICAL_AUDIT.md) and [flow diagnostics/data contract](FLOW_DIAGNOSTICS_AND_DATASET.md). These are planned until implemented and device-validated in the active host backend.
+- A/B global-motion pre-warp and edge-preserving flow regularization independently.
+- Improve candidate selection and occlusion-aware fallback.
+- Preserve one flow solve per source pair for ×2/×3/×4; measure phase synthesis cost separately.
+- Tune flow scale, search and reconstruction by device capability and sustained thermal budget.
+- Consider asynchronous compute only where profiling proves overlap and synchronization cost does not erase the gain.
 
-## v0.4 — Calibration and optional tiny model
+## P3 — benchmark and optional learning
 
-- Opt-in lossless capture of real source frames and true high-rate midpoint targets, with manifest, hashes and explicit consent.
-- Offline confidence calibration against held-out ground-truth scenes.
-- Dataset splits by game/scene/session to avoid adjacent-frame leakage.
-- Evaluate a small optional residual corrector only after classical baseline measurements; keep classical flow/warp/synthesis as default and fallback.
-- Quantized model, measured inference budget and heuristic fallback tests if a model demonstrates net benefit on target Adreno hardware.
+- Build opt-in lossless source/ground-truth triplet capture with manifest and hashes.
+- Split datasets by game/scene/session; never use generated outputs as ground truth.
+- Establish repeatable GSFG A/B harness: same device, driver, resolution, refresh, scene, settings and thermal starting state.
+- Evaluate a compact residual corrector only if it improves quality at net GPU/latency benefit; keep it optional and classical fallback intact.
 
-Do not use generated SnapFrame outputs as ground truth. Do not block the render thread on readback, compression or file I/O. Do not silently upload captured gameplay.
+## P4 — platform completion and release
 
-## v1.0 — Cross-host release
+- Validate X11 and Wayland separately on physical Turnip/Adreno hardware.
+- Complete generic Winlator runtime adapter for a precisely identified fork and DXVK/compositor version.
+- Validate Skyrim_Android/DXVK adapter independently.
+- Verify resize, format/HDR, scene discontinuity, device loss, long sessions, UI/HUD, audio unaffected and clean fallback.
+- Publish exact APK, commit, device, driver, logs and reproducible benchmark methodology.
 
-Stable ABI, Android ARM64/Windows/Linux builds, validated Skyrim_Android, DXVK, Winlator fork and WinNative compositor adapters. Physical-device validation and license review remain release gates.
+## Release gates
 
-Roadmap items are plans unless explicitly marked implemented. Portable CI, host compilation and physical runtime validation are separate milestones.
+No claim of beating GSFG until repeated A/B runs show statistically meaningful improvement without unacceptable regressions in image quality, pacing, latency, power or stability. Report wins and losses per scenario.
